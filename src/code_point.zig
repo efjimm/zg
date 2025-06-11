@@ -9,13 +9,13 @@
 pub const CodePoint = struct {
     code: u21,
     len: u3,
-    offset: u32,
+    offset: usize,
 };
 
 /// This function is deprecated and will be removed in a later release.
 /// Use `decodeAtIndex` or `decodeAtCursor`.
-pub fn decode(bytes: []const u8, offset: u32) ?CodePoint {
-    var off: u32 = 0;
+pub fn decode(bytes: []const u8, offset: usize) ?CodePoint {
+    var off: usize = 0;
     var maybe_code = decodeAtCursor(bytes, &off);
     if (maybe_code) |*code| {
         code.offset = offset;
@@ -25,14 +25,14 @@ pub fn decode(bytes: []const u8, offset: u32) ?CodePoint {
 }
 
 /// Decode the CodePoint, if any, at `bytes[idx]`.
-pub fn decodeAtIndex(bytes: []const u8, idx: u32) ?CodePoint {
+pub fn decodeAtIndex(bytes: []const u8, idx: usize) ?CodePoint {
     var off = idx;
     return decodeAtCursor(bytes, &off);
 }
 
 /// Decode the CodePoint, if any, at `bytes[cursor.*]`.  After, the
 /// cursor will point at the next potential codepoint index.
-pub fn decodeAtCursor(bytes: []const u8, cursor: *u32) ?CodePoint {
+pub fn decodeAtCursor(bytes: []const u8, cursor: *usize) ?CodePoint {
     // EOS
     if (cursor.* >= bytes.len) return null;
 
@@ -50,7 +50,7 @@ pub fn decodeAtCursor(bytes: []const u8, cursor: *u32) ?CodePoint {
 
     // Second:
     var class: u4 = @intCast(u8dfa[byte]);
-    var st: u32 = state_dfa[class];
+    var st: usize = state_dfa[class];
     if (st == RUNE_REJECT or cursor.* == bytes.len) {
         @branchHint(.cold);
         // First one is never a truncation
@@ -60,7 +60,7 @@ pub fn decodeAtCursor(bytes: []const u8, cursor: *u32) ?CodePoint {
             .offset = this_off,
         };
     }
-    var rune: u32 = byte & class_mask[class];
+    var rune: usize = byte & class_mask[class];
     byte = bytes[cursor.*];
     class = @intCast(u8dfa[byte]);
     st = state_dfa[st + class];
@@ -148,7 +148,7 @@ pub fn decodeAtCursor(bytes: []const u8, cursor: *u32) ?CodePoint {
 /// `Iterator` iterates a string one `CodePoint` at-a-time.
 pub const Iterator = struct {
     bytes: []const u8,
-    i: u32 = 0,
+    i: usize = 0,
 
     pub fn init(bytes: []const u8) Iterator {
         return .{ .bytes = bytes, .i = 0 };

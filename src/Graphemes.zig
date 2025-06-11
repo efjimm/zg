@@ -99,8 +99,8 @@ pub const Gbp = enum {
 
 /// `Grapheme` represents a Unicode grapheme cluster by its length and offset in the source bytes.
 pub const Grapheme = struct {
-    len: u8,
-    offset: u32,
+    len: usize,
+    offset: usize,
 
     /// `bytes` returns the slice of bytes that correspond to
     /// this grapheme cluster in `src`.
@@ -142,7 +142,7 @@ pub const Iterator = struct {
         }
 
         const gc_start = self.buf[0].?.offset;
-        var gc_len: u8 = self.buf[0].?.len;
+        var gc_len: usize = self.buf[0].?.len;
         var state = State{};
 
         if (graphemeBreak(
@@ -203,7 +203,7 @@ pub const Iterator = struct {
         }
 
         const gc_start = self.buf[0].?.offset;
-        var gc_len: u8 = self.buf[0].?.len;
+        var gc_len: usize = self.buf[0].?.len;
         var state = State{};
 
         if (graphemeBreak(
