@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const unicode_data_path = @import("options").unicode_data_path;
 const mem = std.mem;
 
 pub fn main() !void {
@@ -8,7 +9,8 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     // Process DerivedCoreProperties.txt
-    var props_file = try std.fs.cwd().openFile("data/unicode/DerivedCoreProperties.txt", .{});
+    const props_data_path = unicode_data_path ++ "/DerivedCoreProperties.txt";
+    var props_file = try std.fs.cwd().openFile(props_data_path, .{});
     defer props_file.close();
     var props_buf = std.io.bufferedReader(props_file.reader());
     const props_reader = props_buf.reader();
@@ -55,7 +57,8 @@ pub fn main() !void {
     defer codepoint_mapping.deinit();
 
     // Process CaseFolding.txt
-    var cp_file = try std.fs.cwd().openFile("data/unicode/CaseFolding.txt", .{});
+    const casefolding_data_path = unicode_data_path ++ "/CaseFolding.txt";
+    var cp_file = try std.fs.cwd().openFile(casefolding_data_path, .{});
     defer cp_file.close();
     var cp_buf = std.io.bufferedReader(cp_file.reader());
     const cp_reader = cp_buf.reader();

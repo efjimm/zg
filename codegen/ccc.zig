@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const unicode_data_path = @import("options").unicode_data_path;
 
 const block_size = 256;
 const Block = [block_size]u8;
@@ -32,7 +33,8 @@ pub fn main() !void {
     var line_buf: [4096]u8 = undefined;
 
     // Process DerivedCombiningClass.txt
-    var cc_file = try std.fs.cwd().openFile("data/unicode/extracted/DerivedCombiningClass.txt", .{});
+    const cc_data_path = unicode_data_path ++ "/extracted/DerivedCombiningClass.txt";
+    var cc_file = try std.fs.cwd().openFile(cc_data_path, .{});
     defer cc_file.close();
     var cc_buf = std.io.bufferedReader(cc_file.reader());
     const cc_reader = cc_buf.reader();

@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const unicode_data_path = @import("options").unicode_data_path;
 
 const block_size = 256;
 const Block = [block_size]u8;
@@ -122,9 +123,9 @@ pub fn main() !void {
     var flat_map = std.AutoHashMap(u21, u8).init(allocator);
     defer flat_map.deinit();
 
-    const core_path = "data/unicode/DerivedCoreProperties.txt";
-    const props_path = "data/unicode/PropList.txt";
-    const num_path = "data/unicode/extracted/DerivedNumericType.txt";
+    const core_path = unicode_data_path ++ "/DerivedCoreProperties.txt";
+    const props_path = unicode_data_path ++ "/PropList.txt";
+    const num_path = unicode_data_path ++ "/extracted/DerivedNumericType.txt";
 
     const s1, const s2 = try fromFile(allocator, core_path, &.{
         "Math",

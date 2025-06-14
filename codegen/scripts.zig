@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const unicode_data_path = @import("options").unicode_data_path;
 
 const block_size = 256;
 const Block = [block_size]u8;
@@ -32,7 +33,8 @@ pub fn main() !void {
     var line_buf: [4096]u8 = undefined;
 
     // Process DerivedGeneralCategory.txt
-    var in_file = try std.fs.cwd().openFile("data/unicode/Scripts.txt", .{});
+    const scripts_data_path = unicode_data_path ++ "/Scripts.txt";
+    var in_file = try std.fs.cwd().openFile(scripts_data_path, .{});
     defer in_file.close();
     var in_buf = std.io.bufferedReader(in_file.reader());
     const in_reader = in_buf.reader();

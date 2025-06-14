@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const unicode_data_path = @import("options").unicode_data_path;
 
 const options = @import("options");
 
@@ -34,7 +35,8 @@ pub fn main() !void {
     var line_buf: [4096]u8 = undefined;
 
     // Process DerivedEastAsianWidth.txt
-    var deaw_file = try std.fs.cwd().openFile("data/unicode/extracted/DerivedEastAsianWidth.txt", .{});
+    const deaw_data_path = unicode_data_path ++ "/extracted/DerivedEastAsianWidth.txt";
+    var deaw_file = try std.fs.cwd().openFile(deaw_data_path, .{});
     defer deaw_file.close();
     var deaw_buf = std.io.bufferedReader(deaw_file.reader());
     const deaw_reader = deaw_buf.reader();
@@ -91,7 +93,8 @@ pub fn main() !void {
     }
 
     // Process DerivedGeneralCategory.txt
-    var dgc_file = try std.fs.cwd().openFile("data/unicode/extracted/DerivedGeneralCategory.txt", .{});
+    const dgc_data_path = unicode_data_path ++ "/extracted/DerivedGeneralCategory.txt";
+    var dgc_file = try std.fs.cwd().openFile(dgc_data_path, .{});
     defer dgc_file.close();
     var dgc_buf = std.io.bufferedReader(dgc_file.reader());
     const dgc_reader = dgc_buf.reader();

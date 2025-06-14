@@ -43,6 +43,8 @@ pub fn build(b: *std.Build) !void {
     ) orelse 0;
     options.addOption(i4, "c1_width", c1_width);
 
+    options.addOptionPath("unicode_data_path", b.path("data/unicode"));
+
     const root_module = b.addModule("zg", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,

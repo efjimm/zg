@@ -66,43 +66,42 @@ pub fn build(b: *std.Build) !void {
             .name = "zg_normalize",
             .src = "src/zg_normalize.zig",
             .imports = &.{
-                .{ .name = "Normalize", .module = zg.module("Normalize") },
+                .{ .name = "zg", .module = zg.module("zg") },
             },
         },
         .{
             .name = "zg_caseless",
             .src = "src/zg_caseless.zig",
             .imports = &.{
-                .{ .name = "CaseFolding", .module = zg.module("CaseFolding") },
-                .{ .name = "Normalize", .module = zg.module("Normalize") },
+                .{ .name = "zg", .module = zg.module("zg") },
             },
         },
         .{
             .name = "zg_codepoint",
             .src = "src/zg_codepoint.zig",
             .imports = &.{
-                .{ .name = "code_point", .module = zg.module("code_point") },
+                .{ .name = "zg", .module = zg.module("zg") },
             },
         },
         .{
             .name = "zg_grapheme",
             .src = "src/zg_grapheme.zig",
             .imports = &.{
-                .{ .name = "Graphemes", .module = zg.module("Graphemes") },
+                .{ .name = "zg", .module = zg.module("zg") },
             },
         },
         .{
             .name = "zg_width",
             .src = "src/zg_width.zig",
             .imports = &.{
-                .{ .name = "DisplayWidth", .module = zg.module("DisplayWidth") },
+                .{ .name = "zg", .module = zg.module("zg") },
             },
         },
         .{
             .name = "zg_case",
             .src = "src/zg_case.zig",
             .imports = &.{
-                .{ .name = "LetterCasing", .module = zg.module("LetterCasing") },
+                .{ .name = "zg", .module = zg.module("zg") },
             },
         },
     };
@@ -129,15 +128,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    unit_tests.root_module.addImport("GeneralCategories", zg.module("GeneralCategories"));
-    unit_tests.root_module.addImport("Properties", zg.module("Properties"));
-    unit_tests.root_module.addImport("LetterCasing", zg.module("LetterCasing"));
-    unit_tests.root_module.addImport("Normalize", zg.module("Normalize"));
-    unit_tests.root_module.addImport("CaseFolding", zg.module("CaseFolding"));
-    unit_tests.root_module.addImport("DisplayWidth", zg.module("DisplayWidth"));
-    unit_tests.root_module.addImport("code_point", zg.module("code_point"));
-    unit_tests.root_module.addImport("Graphemes", zg.module("Graphemes"));
-    unit_tests.root_module.addImport("Scripts", zg.module("Scripts"));
+    unit_tests.root_module.addImport("zg", zg.module("zg"));
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 

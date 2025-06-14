@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const unicode_data_path = @import("options").unicode_data_path;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -7,7 +8,8 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const fromFile = @import("properties.zig").fromFile;
-    const s1, const s2 = try fromFile(allocator, "data/unicode/DerivedCoreProperties.txt", &.{
+    const props_data_path = unicode_data_path ++ "/DerivedCoreProperties.txt";
+    const s1, const s2 = try fromFile(allocator, props_data_path, &.{
         "Lowercase",
         "Uppercase",
         "Cased",

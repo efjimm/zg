@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const unicode_data_path = @import("options").unicode_data_path;
 
 const Syllable = enum {
     none,
@@ -41,7 +42,8 @@ pub fn main() !void {
     var line_buf: [4096]u8 = undefined;
 
     // Process HangulSyllableType.txt
-    var in_file = try std.fs.cwd().openFile("data/unicode/HangulSyllableType.txt", .{});
+    const hangul_data_path = unicode_data_path ++ "/HangulSyllableType.txt";
+    var in_file = try std.fs.cwd().openFile(hangul_data_path, .{});
     defer in_file.close();
     var in_buf = std.io.bufferedReader(in_file.reader());
     const in_reader = in_buf.reader();

@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const unicode_data_path = @import("options").unicode_data_path;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -7,7 +8,8 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     // Process UnicodeData.txt
-    var in_file = try std.fs.cwd().openFile("data/unicode/UnicodeData.txt", .{});
+    const data_path = unicode_data_path ++ "/UnicodeData.txt";
+    var in_file = try std.fs.cwd().openFile(data_path, .{});
     defer in_file.close();
     var in_buf = std.io.bufferedReader(in_file.reader());
     const in_reader = in_buf.reader();
