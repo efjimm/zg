@@ -1,8 +1,11 @@
-//! Unicode Code Point module
-//!
 //! Provides a decoder and iterator over a UTF-8 encoded string.
 //! Represents invalid data according to the Replacement of Maximal
 //! Subparts algorithm.
+const std = @import("std");
+const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
+const assert = std.debug.assert;
 
 /// `CodePoint` represents a Unicode code point by its code,
 /// length, and offset in the source bytes.
@@ -345,9 +348,3 @@ test "truncation" {
         try testing.expectEqual(1, fifth.len);
     }
 }
-
-const std = @import("std");
-const testing = std.testing;
-const expect = testing.expect;
-const expectEqual = testing.expectEqual;
-const assert = std.debug.assert;

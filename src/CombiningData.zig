@@ -1,37 +1,40 @@
-//! Combining Class Data
+const std = @import("std");
+const builtin = @import("builtin");
 
-s1: []u16 = undefined,
-s2: []u8 = undefined,
+s1: []const u16,
+s2: []const u8,
 
 const CombiningData = @This();
 
-pub fn init(allocator: mem.Allocator) !CombiningData {
-    const decompressor = compress.flate.inflate.decompressor;
+pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!CombiningData {
     const in_bytes = @embedFile("ccc");
     var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = decompressor(.raw, in_fbs.reader());
+    var in_decomp = std.compress.flate.inflate.decompressor(.raw, in_fbs.reader());
     var reader = in_decomp.reader();
 
-    const endian = builtin.cpu.arch.endian();
+    const Header = extern struct {
+        s1_len: u32,
+        s2_len: u32,
+    };
 
-    var cbdata = CombiningData{};
+    const header = reader.readStruct(Header) catch unreachable;
+    const bytes = try allocator.alignedAlloc(u8, .of(u16), header.s1_len * 2 + header.s2_len);
+    const bytes_read = reader.readAll(bytes) catch unreachable;
+    std.debug.assert(bytes_read == header.s1_len * 2 + header.s2_len);
 
-    const stage_1_len: u16 = try reader.readInt(u16, endian);
-    cbdata.s1 = try allocator.alloc(u16, stage_1_len);
-    errdefer allocator.free(cbdata.s1);
-    for (0..stage_1_len) |i| cbdata.s1[i] = try reader.readInt(u16, endian);
+    const s1: []const u16 = @ptrCast(bytes[0 .. header.s1_len * 2]);
+    const s2 = bytes[header.s1_len * 2 ..][0..header.s2_len];
 
-    const stage_2_len: u16 = try reader.readInt(u16, endian);
-    cbdata.s2 = try allocator.alloc(u8, stage_2_len);
-    errdefer allocator.free(cbdata.s2);
-    _ = try reader.readAll(cbdata.s2);
-
-    return cbdata;
+    return .{
+        .s1 = s1,
+        .s2 = s2,
+    };
 }
 
-pub fn deinit(cbdata: *const CombiningData, allocator: mem.Allocator) void {
-    allocator.free(cbdata.s1);
-    allocator.free(cbdata.s2);
+pub fn deinit(cbdata: *const CombiningData, allocator: std.mem.Allocator) void {
+    const ptr: [*]align(2) const u8 = @ptrCast(cbdata.s1.ptr);
+    const slice = ptr[0 .. cbdata.s1.len * 2 + cbdata.s2.len];
+    allocator.free(slice);
 }
 
 /// Returns the canonical combining class for a code point.
@@ -43,8 +46,3 @@ pub fn ccc(cbdata: CombiningData, cp: u21) u8 {
 pub fn isStarter(cbdata: CombiningData, cp: u21) bool {
     return cbdata.s2[cbdata.s1[cp >> 8] + (cp & 0xff)] == 0;
 }
-
-const std = @import("std");
-const builtin = @import("builtin");
-const compress = std.compress;
-const mem = std.mem;

@@ -113,11 +113,11 @@ pub fn main() !void {
     var out_comp = try compressor(.raw, out_file.writer(), .{ .level = .best });
     const writer = out_comp.writer();
 
-    const endian = builtin.cpu.arch.endian();
-    try writer.writeInt(u16, @intCast(stage1.items.len), endian);
-    for (stage1.items) |i| try writer.writeInt(u16, i, endian);
+    const endian = @import("options").target_endian;
+    try writer.writeInt(u32, @intCast(stage1.items.len), endian);
+    try writer.writeInt(u32, @intCast(stage2.items.len), endian);
 
-    try writer.writeInt(u16, @intCast(stage2.items.len), endian);
+    for (stage1.items) |i| try writer.writeInt(u16, i, endian);
     try writer.writeAll(stage2.items);
 
     try out_comp.flush();

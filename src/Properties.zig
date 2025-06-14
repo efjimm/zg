@@ -1,148 +1,139 @@
-//! Properties module
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const testing = std.testing;
+const builtin = @import("builtin");
 
-core_s1: []u16 = undefined,
-core_s2: []u8 = undefined,
-props_s1: []u16 = undefined,
-props_s2: []u8 = undefined,
-num_s1: []u16 = undefined,
-num_s2: []u8 = undefined,
+core_s1: []u16,
+core_s2: []u8,
+props_s1: []u16,
+props_s2: []u8,
+num_s1: []u16,
+num_s2: []u8,
 
 const Properties = @This();
 
-pub fn init(allocator: Allocator) Allocator.Error!Properties {
-    var props = Properties{};
-    try props.setup(allocator);
-    return props;
-}
+fn init(allocator: Allocator) Allocator.Error!Properties {
+    const decompressor = std.compress.flate.inflate.decompressor;
 
-pub fn setup(props: *Properties, allocator: Allocator) Allocator.Error!void {
-    props.setupInner(allocator) catch |err| {
-        switch (err) {
-            error.OutOfMemory => |e| return e,
-            else => unreachable,
+    // Process DerivedCoreProperties.txt
+    var fbs = std.io.fixedBufferStream(@embedFile("properties"));
+    var decomp = decompressor(.raw, fbs.reader());
+    var reader = decomp.reader();
+
+    const Header = extern struct {
+        s1_len: u16,
+        s2_len: u16,
+
+        fn totalSize(header: @This()) usize {
+            return @as(usize, header.s1_len) * 2 + header.s2_len;
         }
+    };
+
+    const core_header = reader.readStruct(Header) catch unreachable;
+    const props_header = reader.readStruct(Header) catch unreachable;
+    const num_header = reader.readStruct(Header) catch unreachable;
+
+    const total_size =
+        std.mem.alignForward(usize, core_header.totalSize(), 2) +
+        std.mem.alignForward(usize, props_header.totalSize(), 2) +
+        num_header.totalSize();
+    const bytes = try allocator.alignedAlloc(u8, .of(u16), total_size);
+    errdefer allocator.free(bytes);
+
+    const props_bytes_start = std.mem.alignForward(usize, core_header.totalSize(), 2);
+    const num_bytes_start = std.mem.alignForward(usize, props_bytes_start + props_header.totalSize(), 2);
+
+    const core_bytes = bytes[0..core_header.totalSize()];
+    const props_bytes = bytes[props_bytes_start..][0..props_header.totalSize()];
+    const num_bytes = bytes[num_bytes_start..][0..num_header.totalSize()];
+
+    var bytes_read = reader.readAll(core_bytes) catch unreachable;
+    std.debug.assert(bytes_read == core_bytes.len);
+
+    bytes_read = reader.readAll(props_bytes) catch unreachable;
+    std.debug.assert(bytes_read == props_bytes.len);
+
+    bytes_read = reader.readAll(num_bytes) catch unreachable;
+    std.debug.assert(bytes_read == num_bytes.len);
+
+    return .{
+        .core_s1 = @ptrCast(core_bytes[0 .. core_header.s1_len * 2]),
+        .core_s2 = core_bytes[core_header.s1_len * 2 ..],
+
+        .props_s1 = @ptrCast(@alignCast(props_bytes[0 .. props_header.s1_len * 2])),
+        .props_s2 = props_bytes[props_header.s1_len * 2 ..],
+
+        .num_s1 = @ptrCast(@alignCast(num_bytes[0 .. num_header.s1_len * 2])),
+        .num_s2 = num_bytes[num_header.s1_len * 2 ..],
     };
 }
 
-inline fn setupInner(props: *Properties, allocator: Allocator) !void {
-    const decompressor = compress.flate.inflate.decompressor;
-    const endian = builtin.cpu.arch.endian();
-
-    // Process DerivedCoreProperties.txt
-    const core_bytes = @embedFile("core_props");
-    var core_fbs = std.io.fixedBufferStream(core_bytes);
-    var core_decomp = decompressor(.raw, core_fbs.reader());
-    var core_reader = core_decomp.reader();
-
-    const core_stage_1_len: u16 = try core_reader.readInt(u16, endian);
-    props.core_s1 = try allocator.alloc(u16, core_stage_1_len);
-    errdefer allocator.free(props.core_s1);
-    for (0..core_stage_1_len) |i| props.core_s1[i] = try core_reader.readInt(u16, endian);
-
-    const core_stage_2_len: u16 = try core_reader.readInt(u16, endian);
-    props.core_s2 = try allocator.alloc(u8, core_stage_2_len);
-    errdefer allocator.free(props.core_s2);
-    _ = try core_reader.readAll(props.core_s2);
-
-    // Process PropList.txt
-    const props_bytes = @embedFile("props");
-    var props_fbs = std.io.fixedBufferStream(props_bytes);
-    var props_decomp = decompressor(.raw, props_fbs.reader());
-    var props_reader = props_decomp.reader();
-
-    const stage_1_len: u16 = try props_reader.readInt(u16, endian);
-    props.props_s1 = try allocator.alloc(u16, stage_1_len);
-    errdefer allocator.free(props.props_s1);
-    for (0..stage_1_len) |i| props.props_s1[i] = try props_reader.readInt(u16, endian);
-
-    const stage_2_len: u16 = try props_reader.readInt(u16, endian);
-    props.props_s2 = try allocator.alloc(u8, stage_2_len);
-    errdefer allocator.free(props.props_s2);
-    _ = try props_reader.readAll(props.props_s2);
-
-    // Process DerivedNumericType.txt
-    const num_bytes = @embedFile("numeric");
-    var num_fbs = std.io.fixedBufferStream(num_bytes);
-    var num_decomp = decompressor(.raw, num_fbs.reader());
-    var num_reader = num_decomp.reader();
-
-    const num_stage_1_len: u16 = try num_reader.readInt(u16, endian);
-    props.num_s1 = try allocator.alloc(u16, num_stage_1_len);
-    errdefer allocator.free(props.num_s1);
-    for (0..num_stage_1_len) |i| props.num_s1[i] = try num_reader.readInt(u16, endian);
-
-    const num_stage_2_len: u16 = try num_reader.readInt(u16, endian);
-    props.num_s2 = try allocator.alloc(u8, num_stage_2_len);
-    errdefer allocator.free(props.num_s2);
-    _ = try num_reader.readAll(props.num_s2);
-}
-
 pub fn deinit(self: *const Properties, allocator: Allocator) void {
-    allocator.free(self.core_s1);
-    allocator.free(self.core_s2);
-    allocator.free(self.props_s1);
-    allocator.free(self.props_s2);
-    allocator.free(self.num_s1);
-    allocator.free(self.num_s2);
+    const total_size =
+        std.mem.alignForward(usize, self.core_s1.len * 2 + self.core_s2.len, 2) +
+        std.mem.alignForward(usize, self.props_s1.len * 2 + self.props_s2.len, 2) +
+        self.num_s1.len * 2 + self.num_s2.len;
+    const ptr: [*]const u8 = @ptrCast(self.core_s1.ptr);
+    allocator.free(ptr[0..total_size]);
 }
 
 /// True if `cp` is a mathematical symbol.
-pub fn isMath(self: Properties, cp: u21) bool {
+pub fn isMath(self: *const Properties, cp: u21) bool {
     return self.core_s2[self.core_s1[cp >> 8] + (cp & 0xff)] & 1 == 1;
 }
 
 /// True if `cp` is an alphabetic character.
-pub fn isAlphabetic(self: Properties, cp: u21) bool {
+pub fn isAlphabetic(self: *const Properties, cp: u21) bool {
     return self.core_s2[self.core_s1[cp >> 8] + (cp & 0xff)] & 2 == 2;
 }
 
 /// True if `cp` is a valid identifier start character.
-pub fn isIdStart(self: Properties, cp: u21) bool {
+pub fn isIdStart(self: *const Properties, cp: u21) bool {
     return self.core_s2[self.core_s1[cp >> 8] + (cp & 0xff)] & 4 == 4;
 }
 
 /// True if `cp` is a valid identifier continuation character.
-pub fn isIdContinue(self: Properties, cp: u21) bool {
+pub fn isIdContinue(self: *const Properties, cp: u21) bool {
     return self.core_s2[self.core_s1[cp >> 8] + (cp & 0xff)] & 8 == 8;
 }
 
 /// True if `cp` is a valid extended identifier start character.
-pub fn isXidStart(self: Properties, cp: u21) bool {
+pub fn isXidStart(self: *const Properties, cp: u21) bool {
     return self.core_s2[self.core_s1[cp >> 8] + (cp & 0xff)] & 16 == 16;
 }
 
 /// True if `cp` is a valid extended identifier continuation character.
-pub fn isXidContinue(self: Properties, cp: u21) bool {
+pub fn isXidContinue(self: *const Properties, cp: u21) bool {
     return self.core_s2[self.core_s1[cp >> 8] + (cp & 0xff)] & 32 == 32;
 }
 
 /// True if `cp` is a whitespace character.
-pub fn isWhitespace(self: Properties, cp: u21) bool {
+pub fn isWhitespace(self: *const Properties, cp: u21) bool {
     return self.props_s2[self.props_s1[cp >> 8] + (cp & 0xff)] & 1 == 1;
 }
 
 /// True if `cp` is a hexadecimal digit.
-pub fn isHexDigit(self: Properties, cp: u21) bool {
+pub fn isHexDigit(self: *const Properties, cp: u21) bool {
     return self.props_s2[self.props_s1[cp >> 8] + (cp & 0xff)] & 2 == 2;
 }
 
 /// True if `cp` is a diacritic mark.
-pub fn isDiacritic(self: Properties, cp: u21) bool {
+pub fn isDiacritic(self: *const Properties, cp: u21) bool {
     return self.props_s2[self.props_s1[cp >> 8] + (cp & 0xff)] & 4 == 4;
 }
 
 /// True if `cp` is numeric.
-pub fn isNumeric(self: Properties, cp: u21) bool {
+pub fn isNumeric(self: *const Properties, cp: u21) bool {
     return self.num_s2[self.num_s1[cp >> 8] + (cp & 0xff)] & 1 == 1;
 }
 
 /// True if `cp` is a digit.
-pub fn isDigit(self: Properties, cp: u21) bool {
+pub fn isDigit(self: *const Properties, cp: u21) bool {
     return self.num_s2[self.num_s1[cp >> 8] + (cp & 0xff)] & 2 == 2;
 }
 
 /// True if `cp` is decimal.
-pub fn isDecimal(self: Properties, cp: u21) bool {
+pub fn isDecimal(self: *const Properties, cp: u21) bool {
     return self.num_s2[self.num_s1[cp >> 8] + (cp & 0xff)] & 4 == 4;
 }
 
@@ -177,10 +168,3 @@ fn testAllocator(allocator: Allocator) !void {
 test "Allocation failure" {
     try testing.checkAllAllocationFailures(testing.allocator, testAllocator, .{});
 }
-
-const std = @import("std");
-const builtin = @import("builtin");
-const compress = std.compress;
-const mem = std.mem;
-const Allocator = mem.Allocator;
-const testing = std.testing;

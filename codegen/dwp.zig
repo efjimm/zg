@@ -164,7 +164,7 @@ pub fn main() !void {
 
             // C0/C1 control codes
             0...0x20 => width = if (options.c0_width) |c0| c0 else 0,
-            0x80...0x9f => width = if (options.c1_width) |c1| c1 else 0,
+            0x80...0x9f => width = options.c1_width,
 
             // Line separator
             0x2028,
@@ -233,11 +233,10 @@ pub fn main() !void {
     var out_comp = try compressor(.raw, out_file.writer(), .{ .level = .best });
     const writer = out_comp.writer();
 
-    const endian = builtin.cpu.arch.endian();
-    try writer.writeInt(u16, @intCast(stage1.items.len), endian);
+    const endian = @import("options").target_endian;
+    try writer.writeInt(u32, @intCast(stage1.items.len), endian);
+    try writer.writeInt(u32, @intCast(stage2.items.len), endian);
     for (stage1.items) |i| try writer.writeInt(u16, i, endian);
-
-    try writer.writeInt(u16, @intCast(stage2.items.len), endian);
     for (stage2.items) |i| try writer.writeInt(i8, i, endian);
 
     try out_comp.flush();

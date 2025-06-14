@@ -227,25 +227,25 @@ pub fn main() !void {
         var out_comp = try compressor(.raw, out_file.writer(), .{ .level = .best });
         const writer = out_comp.writer();
 
-        const endian = builtin.cpu.arch.endian();
+        const endian = @import("options").target_endian;
         // Table metadata.
-        try writer.writeInt(u24, @intCast(codepoint_cutoff), endian);
-        try writer.writeInt(u24, @intCast(multiple_codepoint_start), endian);
-        // Stage 1
-        try writer.writeInt(u16, @intCast(meaningful_stage1.len), endian);
-        try writer.writeAll(meaningful_stage1);
-        // Stage 2
-        try writer.writeInt(u16, @intCast(stage2.len), endian);
-        try writer.writeAll(stage2);
-        // Stage 3
-        try writer.writeInt(u16, @intCast(stage3.len), endian);
-        for (stage3) |offset| try writer.writeInt(i24, offset, endian);
+        try writer.writeInt(u32, @intCast(codepoint_cutoff), endian);
+        try writer.writeInt(u32, @intCast(multiple_codepoint_start), endian);
+
+        try writer.writeInt(u32, @intCast(meaningful_stage1.len), endian);
+        try writer.writeInt(u32, @intCast(stage2.len), endian);
+        try writer.writeInt(u32, @intCast(stage3.len), endian);
+
         // Changes when case folded
         // Min and max
-        try writer.writeInt(u24, std.mem.min(u21, changes_when_casefolded_exceptions.items), endian);
-        try writer.writeInt(u24, std.mem.max(u21, changes_when_casefolded_exceptions.items), endian);
-        try writer.writeInt(u16, @intCast(changes_when_casefolded_exceptions.items.len), endian);
-        for (changes_when_casefolded_exceptions.items) |cp| try writer.writeInt(u24, cp, endian);
+        try writer.writeInt(u32, std.mem.min(u21, changes_when_casefolded_exceptions.items), endian);
+        try writer.writeInt(u32, std.mem.max(u21, changes_when_casefolded_exceptions.items), endian);
+        try writer.writeInt(u32, @intCast(changes_when_casefolded_exceptions.items.len), endian);
+
+        for (stage3) |offset| try writer.writeInt(i32, offset, endian);
+        for (changes_when_casefolded_exceptions.items) |cp| try writer.writeInt(u32, cp, endian);
+        try writer.writeAll(meaningful_stage1);
+        try writer.writeAll(stage2);
 
         try out_comp.flush();
     }

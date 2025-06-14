@@ -1,8 +1,73 @@
-//! Scripts Module
+const std = @import("std");
 
-s1: []u16 = undefined,
-s2: []u8 = undefined,
-s3: []u8 = undefined,
+data: [*]const u8,
+s1_size: u32,
+s2_size: u16,
+s3_size: u16,
+
+const Scripts = @This();
+
+pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Scripts {
+    const in_bytes = @embedFile("scripts");
+    var in_fbs = std.io.fixedBufferStream(in_bytes);
+    var in_decomp = std.compress.flate.inflate.decompressor(.raw, in_fbs.reader());
+    var reader = in_decomp.reader();
+
+    // The generated data should match the target's endianness.
+    const Header = extern struct {
+        s1_len: u16,
+        s2_len: u16,
+        s3_len: u16,
+    };
+
+    const header: Header = reader.readStruct(Header) catch unreachable;
+    const total_len = @as(usize, header.s1_len) * 2 + header.s2_len + header.s3_len;
+    const bytes = try allocator.alignedAlloc(u8, .of(u16), total_len);
+    const bytes_read = reader.readAll(bytes) catch unreachable;
+    std.debug.assert(bytes_read == bytes.len);
+
+    return .{
+        .data = bytes.ptr,
+        .s1_size = @as(u32, header.s1_len) * 2,
+        .s2_size = header.s2_len,
+        .s3_size = header.s3_len,
+    };
+}
+
+pub fn deinit(self: *const Scripts, allocator: std.mem.Allocator) void {
+    const len = self.s1_size + self.s2_size + self.s3_size;
+    allocator.free(self.data[0..len]);
+}
+
+/// Lookup the Script type for `cp`.
+pub fn script(self: Scripts, cp: u21) ?Script {
+    const s1: []const u16 = @alignCast(@ptrCast(self.data[0..self.s1_size]));
+    const s2 = self.data[self.s1_size..][0..self.s2_size];
+    const s3 = self.data[self.s1_size + self.s2_size ..][0..self.s3_size];
+
+    const byte = s3[s2[s1[cp >> 8] + (cp & 0xff)]];
+    if (byte == 0) return null;
+    return @enumFromInt(byte);
+}
+
+test "script" {
+    const self = try init(std.testing.allocator);
+    defer self.deinit(std.testing.allocator);
+    try std.testing.expectEqual(Script.Latin, self.script('A').?);
+}
+
+fn testAllocator(allocator: std.mem.Allocator) !void {
+    var prop = try Scripts.init(allocator);
+    prop.deinit(allocator);
+}
+
+test "Allocation failure" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        testAllocator,
+        .{},
+    );
+}
 
 /// Scripts enum
 pub const Script = enum {
@@ -178,79 +243,3 @@ pub const Script = enum {
     Yi,
     Zanabazar_Square,
 };
-const Scripts = @This();
-
-pub fn init(allocator: Allocator) Allocator.Error!Scripts {
-    var scripts = Scripts{};
-    try scripts.setup(allocator);
-    return scripts;
-}
-
-pub fn setup(scripts: *Scripts, allocator: Allocator) Allocator.Error!void {
-    scripts.setupInner(allocator) catch |err| {
-        switch (err) {
-            error.OutOfMemory => |e| return e,
-            else => unreachable,
-        }
-    };
-}
-
-inline fn setupInner(scripts: *Scripts, allocator: mem.Allocator) !void {
-    const decompressor = compress.flate.inflate.decompressor;
-    const in_bytes = @embedFile("scripts");
-    var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = decompressor(.raw, in_fbs.reader());
-    var reader = in_decomp.reader();
-
-    const endian = builtin.cpu.arch.endian();
-
-    const s1_len: u16 = try reader.readInt(u16, endian);
-    scripts.s1 = try allocator.alloc(u16, s1_len);
-    errdefer allocator.free(scripts.s1);
-    for (0..s1_len) |i| scripts.s1[i] = try reader.readInt(u16, endian);
-
-    const s2_len: u16 = try reader.readInt(u16, endian);
-    scripts.s2 = try allocator.alloc(u8, s2_len);
-    errdefer allocator.free(scripts.s2);
-    _ = try reader.readAll(scripts.s2);
-
-    const s3_len: u16 = try reader.readInt(u8, endian);
-    scripts.s3 = try allocator.alloc(u8, s3_len);
-    errdefer allocator.free(scripts.s3);
-    _ = try reader.readAll(scripts.s3);
-}
-
-pub fn deinit(self: *const Scripts, allocator: mem.Allocator) void {
-    allocator.free(self.s1);
-    allocator.free(self.s2);
-    allocator.free(self.s3);
-}
-
-/// Lookup the Script type for `cp`.
-pub fn script(self: Scripts, cp: u21) ?Script {
-    const byte = self.s3[self.s2[self.s1[cp >> 8] + (cp & 0xff)]];
-    if (byte == 0) return null;
-    return @enumFromInt(byte);
-}
-
-test "script" {
-    const self = try init(std.testing.allocator);
-    defer self.deinit(std.testing.allocator);
-    try testing.expectEqual(Script.Latin, self.script('A').?);
-}
-
-fn testAllocator(allocator: Allocator) !void {
-    var prop = try Scripts.init(allocator);
-    prop.deinit(allocator);
-}
-
-test "Allocation failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, testAllocator, .{});
-}
-
-const std = @import("std");
-const builtin = @import("builtin");
-const compress = std.compress;
-const mem = std.mem;
-const Allocator = mem.Allocator;
-const testing = std.testing;

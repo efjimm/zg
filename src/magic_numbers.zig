@@ -6,7 +6,7 @@
 pub const print = false;
 
 // Don't want to crash while printing magic...
-const fudge = if (print) 1000 else 0;
+pub const fudge = if (print) 1000 else 0;
 
 // Number of codepoints in CanonData.zig
 pub const canon_size: usize = 3127 + fudge;

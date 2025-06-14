@@ -1,8 +1,9 @@
-//! General Categories
+const std = @import("std");
+const builtin = @import("builtin");
 
-s1: []u16 = undefined,
-s2: []u5 = undefined,
-s3: []u5 = undefined,
+s1: []const u16,
+s2: []const u5,
+s3: []const u5,
 
 /// General Category
 pub const Gc = enum {
@@ -40,41 +41,40 @@ pub const Gc = enum {
 
 const GeneralCategories = @This();
 
-pub fn init(allocator: Allocator) Allocator.Error!GeneralCategories {
-    var gencat = GeneralCategories{};
-    try gencat.setup(allocator);
-    return gencat;
-}
-
-pub fn setup(gencat: *GeneralCategories, allocator: Allocator) Allocator.Error!void {
-    const decompressor = compress.flate.inflate.decompressor;
+pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!GeneralCategories {
     const in_bytes = @embedFile("gencat");
     var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = decompressor(.raw, in_fbs.reader());
+    var in_decomp = std.compress.flate.inflate.decompressor(.raw, in_fbs.reader());
     var reader = in_decomp.reader();
 
-    const endian = builtin.cpu.arch.endian();
+    const Header = extern struct {
+        s1_len: u32,
+        s2_len: u32,
+        s3_len: u32,
+    };
 
-    const s1_len: u16 = reader.readInt(u16, endian) catch unreachable;
-    gencat.s1 = try allocator.alloc(u16, s1_len);
-    errdefer allocator.free(gencat.s1);
-    for (0..s1_len) |i| gencat.s1[i] = reader.readInt(u16, endian) catch unreachable;
+    const header = reader.readStruct(Header) catch unreachable;
+    const total_size = header.s1_len * 2 + header.s2_len + header.s3_len;
+    const bytes = try allocator.alignedAlloc(u8, .of(u16), total_size);
+    const bytes_read = reader.readAll(bytes) catch unreachable;
+    std.debug.assert(bytes_read == total_size);
 
-    const s2_len: u16 = reader.readInt(u16, endian) catch unreachable;
-    gencat.s2 = try allocator.alloc(u5, s2_len);
-    errdefer allocator.free(gencat.s2);
-    for (0..s2_len) |i| gencat.s2[i] = @intCast(reader.readInt(u8, endian) catch unreachable);
+    const s1: []const u16 = @ptrCast(bytes[0 .. header.s1_len * 2]);
+    const s2: []const u5 = @ptrCast(bytes[header.s1_len * 2 ..][0..header.s2_len]);
+    const s3: []const u5 = @ptrCast(bytes[header.s1_len * 2 + header.s2_len ..][0..header.s3_len]);
 
-    const s3_len: u16 = reader.readInt(u8, endian) catch unreachable;
-    gencat.s3 = try allocator.alloc(u5, s3_len);
-    errdefer allocator.free(gencat.s3);
-    for (0..s3_len) |i| gencat.s3[i] = @intCast(reader.readInt(u8, endian) catch unreachable);
+    return .{
+        .s1 = s1,
+        .s2 = s2,
+        .s3 = s3,
+    };
 }
 
-pub fn deinit(gencat: *const GeneralCategories, allocator: mem.Allocator) void {
-    allocator.free(gencat.s1);
-    allocator.free(gencat.s2);
-    allocator.free(gencat.s3);
+pub fn deinit(gencat: *const GeneralCategories, allocator: std.mem.Allocator) void {
+    const total_size = gencat.s1.len * 2 + gencat.s2.len + gencat.s3.len;
+    const ptr: [*]const u8 = @ptrCast(gencat.s1.ptr);
+    const slice = ptr[0..total_size];
+    allocator.free(slice);
 }
 
 /// Lookup the General Category for `cp`.
@@ -168,18 +168,15 @@ pub fn isSeparator(gencat: GeneralCategories, cp: u21) bool {
     };
 }
 
-fn testAllocator(allocator: Allocator) !void {
+fn testAllocator(allocator: std.mem.Allocator) !void {
     var gen_cat = try GeneralCategories.init(allocator);
     gen_cat.deinit(allocator);
 }
 
 test "Allocation failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, testAllocator, .{});
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        testAllocator,
+        .{},
+    );
 }
-
-const std = @import("std");
-const builtin = @import("builtin");
-const compress = std.compress;
-const mem = std.mem;
-const testing = std.testing;
-const Allocator = mem.Allocator;

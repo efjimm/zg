@@ -1,85 +1,80 @@
-const CodePointIterator = @import("code_point").Iterator;
+const std = @import("std");
+const testing = std.testing;
+const builtin = @import("builtin");
 
-case_map: [][2]u21 = undefined,
-prop_s1: []u16 = undefined,
-prop_s2: []u8 = undefined,
+const CodePointIterator = @import("code_point.zig").Iterator;
+
+case_map: [][2]u21,
+prop_s1: []u16,
+prop_s2: []u8,
 
 const LetterCasing = @This();
 
-pub fn init(allocator: Allocator) Allocator.Error!LetterCasing {
-    var case = LetterCasing{};
-    try case.setup(allocator);
-    return case;
-}
-
-pub fn setup(case: *LetterCasing, allocator: Allocator) Allocator.Error!void {
-    case.setupInner(allocator) catch |err| {
-        switch (err) {
-            error.OutOfMemory => |e| return e,
-            else => unreachable,
-        }
-    };
-}
-
-inline fn setupInner(self: *LetterCasing, allocator: mem.Allocator) !void {
-    const decompressor = compress.flate.inflate.decompressor;
+fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!LetterCasing {
+    const decompressor = std.compress.flate.inflate.decompressor;
     const endian = builtin.cpu.arch.endian();
 
-    self.case_map = try allocator.alloc([2]u21, 0x110000);
-    errdefer allocator.free(self.case_map);
+    var fbs = std.io.fixedBufferStream(@embedFile("lettercasing"));
+    var decomp = decompressor(.raw, fbs.reader());
+    var reader = decomp.reader();
 
-    for (0..0x110000) |i| {
-        const cp: u21 = @intCast(i);
-        self.case_map[cp] = .{ cp, cp };
-    }
+    const T = extern struct {
+        cp: u32,
+        lower: i32,
+        upper: i32,
+    };
 
-    // Uppercase
-    const upper_bytes = @embedFile("upper");
-    var upper_fbs = std.io.fixedBufferStream(upper_bytes);
-    var upper_decomp = decompressor(.raw, upper_fbs.reader());
-    var upper_reader = upper_decomp.reader();
+    const case_map_size = reader.readInt(u32, endian) catch unreachable;
+    const buf = try allocator.alloc(T, case_map_size);
+    defer allocator.free(buf);
+    const bytes_read = reader.readAll(std.mem.sliceAsBytes(buf)) catch unreachable;
+    std.debug.assert(bytes_read == std.mem.sliceAsBytes(buf).len);
 
-    while (true) {
-        const cp = try upper_reader.readInt(i24, endian);
-        if (cp == 0) break;
-        const diff = try upper_reader.readInt(i24, endian);
-        self.case_map[@intCast(cp)][0] = @intCast(cp + diff);
-    }
-
-    // Lowercase
-    const lower_bytes = @embedFile("lower");
-    var lower_fbs = std.io.fixedBufferStream(lower_bytes);
-    var lower_decomp = decompressor(.raw, lower_fbs.reader());
-    var lower_reader = lower_decomp.reader();
-
-    while (true) {
-        const cp = try lower_reader.readInt(i24, endian);
-        if (cp == 0) break;
-        const diff = try lower_reader.readInt(i24, endian);
-        self.case_map[@intCast(cp)][1] = @intCast(cp + diff);
-    }
+    const max_cp = buf[buf.len - 1].cp;
 
     // Case properties
-    const cp_bytes = @embedFile("case_prop");
-    var cp_fbs = std.io.fixedBufferStream(cp_bytes);
+    var cp_fbs = std.io.fixedBufferStream(@embedFile("case_prop"));
     var cp_decomp = decompressor(.raw, cp_fbs.reader());
     var cp_reader = cp_decomp.reader();
 
-    const stage_1_len: u16 = try cp_reader.readInt(u16, endian);
-    self.prop_s1 = try allocator.alloc(u16, stage_1_len);
-    errdefer allocator.free(self.prop_s1);
-    for (0..stage_1_len) |i| self.prop_s1[i] = try cp_reader.readInt(u16, endian);
+    const CpHeader = extern struct { s1_len: u16, s2_len: u16 };
+    const header = cp_reader.readStruct(CpHeader) catch unreachable;
+    const total_size = @as(usize, header.s1_len) * 2 + header.s2_len;
 
-    const stage_2_len: u16 = try cp_reader.readInt(u16, endian);
-    self.prop_s2 = try allocator.alloc(u8, stage_2_len);
-    errdefer allocator.free(self.prop_s2);
-    _ = try cp_reader.readAll(self.prop_s2);
+    const bytes = try allocator.alignedAlloc(u8, .of([2]u21), @sizeOf([2]u21) * (max_cp + 1) + total_size);
+    errdefer allocator.free(bytes);
+
+    const case_map: [][2]u21 = @alignCast(std.mem.bytesAsSlice([2]u21, bytes)[0 .. max_cp + 1]);
+
+    for (case_map, 0..) |*c, i| {
+        const cp: u21 = @intCast(i);
+        c.* = .{ cp, cp };
+    }
+
+    for (buf) |c| {
+        const cp: u21 = @intCast(c.cp);
+        case_map[c.cp] = .{ @intCast(cp + c.lower), @intCast(cp + c.upper) };
+    }
+
+    const cp_bytes = bytes[@sizeOf([2]u21) * (max_cp + 1) ..];
+    const cp_bytes_read = cp_reader.readAll(cp_bytes) catch unreachable;
+    std.debug.assert(cp_bytes_read == total_size);
+
+    return .{
+        .case_map = case_map,
+        .prop_s1 = @alignCast(std.mem.bytesAsSlice(u16, cp_bytes[0 .. header.s1_len * 2])),
+        .prop_s2 = cp_bytes[header.s1_len * 2 ..][0..header.s2_len],
+    };
 }
 
-pub fn deinit(self: *const LetterCasing, allocator: mem.Allocator) void {
-    allocator.free(self.case_map);
-    allocator.free(self.prop_s1);
-    allocator.free(self.prop_s2);
+pub fn deinit(self: *const LetterCasing, allocator: std.mem.Allocator) void {
+    const ptr: [*]align(@alignOf([2]u21)) const u8 = @ptrCast(self.case_map.ptr);
+    const total_size =
+        std.mem.sliceAsBytes(self.case_map).len +
+        self.prop_s1.len * 2 +
+        self.prop_s2.len;
+
+    allocator.free(ptr[0..total_size]);
 }
 
 // Returns true if `cp` is either upper, lower, or title case.
@@ -96,9 +91,12 @@ pub fn isUpper(self: LetterCasing, cp: u21) bool {
 pub fn isUpperStr(self: LetterCasing, str: []const u8) bool {
     var iter = CodePointIterator{ .bytes = str };
 
-    return while (iter.next()) |cp| {
-        if (self.isCased(cp.code) and !self.isUpper(cp.code)) break false;
-    } else true;
+    while (iter.next()) |cp| {
+        if (self.isCased(cp.code) and !self.isUpper(cp.code))
+            return false;
+    }
+
+    return true;
 }
 
 test "isUpperStr" {
@@ -112,14 +110,14 @@ test "isUpperStr" {
 
 /// Returns uppercase mapping for `cp`.
 pub fn toUpper(self: LetterCasing, cp: u21) u21 {
-    return self.case_map[cp][0];
+    return if (cp >= self.case_map.len) cp else self.case_map[cp][0];
 }
 
 /// Returns a new string with all letters in uppercase.
 /// Caller must free returned bytes with `allocator`.
 pub fn toUpperStr(
     self: LetterCasing,
-    allocator: mem.Allocator,
+    allocator: std.mem.Allocator,
     str: []const u8,
 ) ![]u8 {
     var bytes = std.ArrayList(u8).init(allocator);
@@ -129,7 +127,7 @@ pub fn toUpperStr(
     var buf: [4]u8 = undefined;
 
     while (iter.next()) |cp| {
-        const len = try unicode.utf8Encode(self.toUpper(cp.code), &buf);
+        const len = try std.unicode.utf8Encode(self.toUpper(cp.code), &buf);
         try bytes.appendSlice(buf[0..len]);
     }
 
@@ -154,9 +152,12 @@ pub fn isLower(self: LetterCasing, cp: u21) bool {
 pub fn isLowerStr(self: LetterCasing, str: []const u8) bool {
     var iter = CodePointIterator{ .bytes = str };
 
-    return while (iter.next()) |cp| {
-        if (self.isCased(cp.code) and !self.isLower(cp.code)) break false;
-    } else true;
+    while (iter.next()) |cp| {
+        if (self.isCased(cp.code) and !self.isLower(cp.code))
+            return false;
+    }
+
+    return true;
 }
 
 test "isLowerStr" {
@@ -170,14 +171,15 @@ test "isLowerStr" {
 
 /// Returns lowercase mapping for `cp`.
 pub fn toLower(self: LetterCasing, cp: u21) u21 {
-    return self.case_map[cp][1];
+    return if (cp >= self.case_map.len) cp else self.case_map[cp][1];
 }
 
+// TODO: Delete this shit
 /// Returns a new string with all letters in lowercase.
 /// Caller must free returned bytes with `allocator`.
 pub fn toLowerStr(
     self: LetterCasing,
-    allocator: mem.Allocator,
+    allocator: std.mem.Allocator,
     str: []const u8,
 ) ![]u8 {
     var bytes = std.ArrayList(u8).init(allocator);
@@ -187,7 +189,7 @@ pub fn toLowerStr(
     var buf: [4]u8 = undefined;
 
     while (iter.next()) |cp| {
-        const len = try unicode.utf8Encode(self.toLower(cp.code), &buf);
+        const len = try std.unicode.utf8Encode(self.toLower(cp.code), &buf);
         try bytes.appendSlice(buf[0..len]);
     }
 
@@ -203,7 +205,7 @@ test "toLowerStr" {
     try testing.expectEqualStrings("hello, world 2112!", lowered);
 }
 
-fn testAllocator(allocator: Allocator) !void {
+fn testAllocator(allocator: std.mem.Allocator) !void {
     var prop = try LetterCasing.init(allocator);
     prop.deinit(allocator);
 }
@@ -211,11 +213,3 @@ fn testAllocator(allocator: Allocator) !void {
 test "Allocation failure" {
     try testing.checkAllAllocationFailures(testing.allocator, testAllocator, .{});
 }
-
-const std = @import("std");
-const builtin = @import("builtin");
-const compress = std.compress;
-const mem = std.mem;
-const Allocator = std.mem.Allocator;
-const testing = std.testing;
-const unicode = std.unicode;

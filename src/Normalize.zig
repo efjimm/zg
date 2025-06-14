@@ -1,66 +1,57 @@
 //! Normalizer contains functions and methods that implement
 //! Unicode Normalization. You can normalize strings into NFC,
 //! NFKC, NFD, and NFKD normalization forms.
+const std = @import("std");
+const assert = std.debug.assert;
+const testing = std.testing;
+const Allocator = std.mem.Allocator;
 
-canon_data: CanonData = undefined,
-ccc_data: CccData = undefined,
-compat_data: CompatData = undefined,
-hangul_data: HangulData = undefined,
-normp_data: NormPropsData = undefined,
+const ascii = @import("ascii.zig");
+const CanonData = @import("CanonData.zig");
+const CccData = @import("CombiningData.zig");
+const CodePointIterator = @import("code_point.zig").Iterator;
+const CompatData = @import("CompatData.zig");
+const HangulData = @import("HangulData.zig");
+const NormPropsData = @import("NormPropsData.zig");
+
+canon_data: CanonData,
+ccc_data: CccData,
+compat_data: CompatData,
+hangul_data: HangulData,
+normp_data: NormPropsData,
 
 const Normalize = @This();
 
 pub fn init(allocator: Allocator) Allocator.Error!Normalize {
-    var norm: Normalize = undefined;
-    try norm.setup(allocator);
-    return norm;
-}
+    const canon_data: CanonData = try .init(allocator);
+    errdefer canon_data.deinit(allocator);
 
-pub fn setup(self: *Normalize, allocator: Allocator) Allocator.Error!void {
-    self.canon_data = CanonData.init(allocator) catch |err| {
-        switch (err) {
-            error.OutOfMemory => |e| return e,
-            else => unreachable,
-        }
-    };
-    errdefer self.canon_data.deinit(allocator);
-    self.ccc_data = CccData.init(allocator) catch |err| {
-        switch (err) {
-            error.OutOfMemory => |e| return e,
-            else => unreachable,
-        }
-    };
-    errdefer self.ccc_data.deinit(allocator);
-    self.compat_data = CompatData.init(allocator) catch |err| {
-        switch (err) {
-            error.OutOfMemory => |e| return e,
-            else => unreachable,
-        }
-    };
-    errdefer self.compat_data.deinit(allocator);
-    self.hangul_data = HangulData.init(allocator) catch |err| {
-        switch (err) {
-            error.OutOfMemory => |e| return e,
-            else => unreachable,
-        }
-    };
-    errdefer self.hangul_data.deinit(allocator);
-    self.normp_data = NormPropsData.init(allocator) catch |err| {
-        switch (err) {
-            error.OutOfMemory => |e| return e,
-            else => unreachable,
-        }
+    const ccc_data: CccData = try .init(allocator);
+    errdefer ccc_data.deinit(allocator);
+
+    const compat_data: CompatData = try .init(allocator);
+    errdefer compat_data.deinit(allocator);
+
+    const hangul_data: HangulData = try .init(allocator);
+    errdefer hangul_data.deinit(allocator);
+
+    const normp_data: NormPropsData = try .init(allocator);
+
+    return .{
+        .canon_data = canon_data,
+        .ccc_data = ccc_data,
+        .compat_data = compat_data,
+        .hangul_data = hangul_data,
+        .normp_data = normp_data,
     };
 }
 
 pub fn deinit(norm: *const Normalize, allocator: Allocator) void {
-    // Reasonably safe (?)
-    var mut_norm = @constCast(norm);
-    mut_norm.canon_data.deinit(allocator);
-    mut_norm.ccc_data.deinit(allocator);
-    mut_norm.compat_data.deinit(allocator);
-    mut_norm.hangul_data.deinit(allocator);
-    mut_norm.normp_data.deinit(allocator);
+    norm.canon_data.deinit(allocator);
+    norm.ccc_data.deinit(allocator);
+    norm.compat_data.deinit(allocator);
+    norm.hangul_data.deinit(allocator);
+    norm.normp_data.deinit(allocator);
 }
 
 const SBase: u21 = 0xAC00;
@@ -290,7 +281,7 @@ fn canonicalSort(self: Normalize, cps: []u21) void {
     while (i < cps.len) : (i += 1) {
         const start: usize = i;
         while (i < cps.len and self.ccc_data.ccc(cps[i]) != 0) : (i += 1) {}
-        mem.sort(u21, cps[start..i], self, cccLess);
+        std.mem.sort(u21, cps[start..i], self, cccLess);
     }
 }
 
@@ -337,7 +328,7 @@ fn nfxd(self: Normalize, allocator: Allocator, str: []const u8, form: Form) Allo
     var buf: [4]u8 = undefined;
 
     for (dcps) |dcp| {
-        const len = unicode.utf8Encode(dcp, &buf) catch unreachable;
+        const len = std.unicode.utf8Encode(dcp, &buf) catch unreachable;
         try dstr_list.appendSlice(buf[0..len]);
     }
 
@@ -566,7 +557,7 @@ fn nfxc(self: Normalize, allocator: Allocator, str: []const u8, form: Form) Allo
 
             for (dcps) |cp| {
                 if (cp == tombstone) continue; // "Delete"
-                const len = unicode.utf8Encode(cp, &buf) catch unreachable;
+                const len = std.unicode.utf8Encode(cp, &buf) catch unreachable;
                 try cstr_list.appendSlice(buf[0..len]);
             }
 
@@ -604,7 +595,7 @@ pub fn eql(self: Normalize, allocator: Allocator, a: []const u8, b: []const u8) 
     const norm_result_b = try self.nfc(allocator, b);
     defer norm_result_b.deinit(allocator);
 
-    return mem.eql(u8, norm_result_a.slice, norm_result_b.slice);
+    return std.mem.eql(u8, norm_result_a.slice, norm_result_b.slice);
 }
 
 test "eql" {
@@ -621,7 +612,7 @@ test "eql" {
 pub fn isLatin1Only(str: []const u8) bool {
     var cp_iter = CodePointIterator{ .bytes = str };
 
-    const vec_len = simd.suggestVectorLength(u21) orelse return blk: {
+    const vec_len = std.simd.suggestVectorLength(u21) orelse return blk: {
         break :blk while (cp_iter.next()) |cp| {
             if (cp.code > 256) break false;
         } else true;
@@ -656,23 +647,3 @@ test "isLatin1Only" {
     const not_latin1_only = "Héllo, World! \u{3d3}";
     try testing.expect(!isLatin1Only(not_latin1_only));
 }
-
-const std = @import("std");
-const debug = std.debug;
-const assert = debug.assert;
-const fmt = std.fmt;
-const heap = std.heap;
-const mem = std.mem;
-const simd = std.simd;
-const testing = std.testing;
-const unicode = std.unicode;
-const Allocator = std.mem.Allocator;
-
-const ascii = @import("ascii");
-const CodePointIterator = @import("code_point").Iterator;
-
-const CanonData = @import("CanonData");
-const CccData = @import("CombiningData");
-const CompatData = @import("CompatData");
-const HangulData = @import("HangulData");
-const NormPropsData = @import("NormPropsData");

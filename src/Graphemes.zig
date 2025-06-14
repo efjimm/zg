@@ -1,54 +1,48 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const mem = std.mem;
-const Allocator = mem.Allocator;
-const compress = std.compress;
-const unicode = std.unicode;
 
-const CodePoint = @import("code_point").CodePoint;
-const CodePointIterator = @import("code_point").Iterator;
+const CodePoint = @import("code_point.zig").CodePoint;
+const CodePointIterator = @import("code_point.zig").Iterator;
 
-s1: []u16 = undefined,
-s2: []u16 = undefined,
-s3: []u8 = undefined,
+s1: []const u16,
+s2: []const u16,
+s3: []const u8,
 
 const Graphemes = @This();
 
-pub fn init(allocator: Allocator) Allocator.Error!Graphemes {
-    var graphemes = Graphemes{};
-    try graphemes.setup(allocator);
-    return graphemes;
-}
-
-pub fn setup(graphemes: *Graphemes, allocator: Allocator) Allocator.Error!void {
-    const decompressor = compress.flate.inflate.decompressor;
+pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Graphemes {
+    const decompressor = std.compress.flate.inflate.decompressor;
     const in_bytes = @embedFile("gbp");
     var in_fbs = std.io.fixedBufferStream(in_bytes);
     var in_decomp = decompressor(.raw, in_fbs.reader());
     var reader = in_decomp.reader();
 
-    const endian = builtin.cpu.arch.endian();
+    const Header = extern struct {
+        s1_len: u32,
+        s2_len: u32,
+        s3_len: u32,
+    };
 
-    const s1_len: u16 = reader.readInt(u16, endian) catch unreachable;
-    graphemes.s1 = try allocator.alloc(u16, s1_len);
-    errdefer allocator.free(graphemes.s1);
-    for (0..s1_len) |i| graphemes.s1[i] = reader.readInt(u16, endian) catch unreachable;
+    const header = reader.readStruct(Header) catch unreachable;
+    const total_size = header.s1_len * 2 + header.s2_len * 2 + header.s3_len;
+    const bytes = try allocator.alignedAlloc(u8, .of(u16), total_size);
+    const bytes_read = reader.readAll(bytes) catch unreachable;
+    std.debug.assert(bytes_read == total_size);
 
-    const s2_len: u16 = reader.readInt(u16, endian) catch unreachable;
-    graphemes.s2 = try allocator.alloc(u16, s2_len);
-    errdefer allocator.free(graphemes.s2);
-    for (0..s2_len) |i| graphemes.s2[i] = reader.readInt(u16, endian) catch unreachable;
+    const s1_size = header.s1_len * 2;
+    const s2_size = header.s2_len * 2;
 
-    const s3_len: u16 = reader.readInt(u16, endian) catch unreachable;
-    graphemes.s3 = try allocator.alloc(u8, s3_len);
-    errdefer allocator.free(graphemes.s3);
-    _ = reader.readAll(graphemes.s3) catch unreachable;
+    return .{
+        .s1 = @ptrCast(@alignCast(bytes[0..s1_size])),
+        .s2 = @ptrCast(@alignCast(bytes[s1_size..][0..s2_size])),
+        .s3 = @ptrCast(@alignCast(bytes[s1_size + s2_size ..][0..header.s3_len])),
+    };
 }
 
-pub fn deinit(graphemes: *const Graphemes, allocator: Allocator) void {
-    allocator.free(graphemes.s1);
-    allocator.free(graphemes.s2);
-    allocator.free(graphemes.s3);
+pub fn deinit(g: *const Graphemes, allocator: std.mem.Allocator) void {
+    const total_size = g.s1.len * 2 + g.s2.len * 2 + g.s3.len;
+    const ptr: [*]const u8 = @ptrCast(g.s1.ptr);
+    allocator.free(ptr[0..total_size]);
 }
 
 /// Lookup the grapheme break property for a code point.

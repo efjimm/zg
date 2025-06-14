@@ -1,66 +1,61 @@
-//! Display Width module
-//!
-//! Answers questions about the printable width in monospaced fonts of the
-//! string of interest.
+const std = @import("std");
+const testing = std.testing;
+const builtin = @import("builtin");
 
-graphemes: Graphemes = undefined,
-s1: []u16 = undefined,
-s2: []i4 = undefined,
-owns_graphemes: bool = true,
+const options = @import("options");
+
+const ascii = @import("ascii.zig");
+const CodePointIterator = @import("code_point.zig").Iterator;
+const Graphemes = @import("Graphemes.zig");
+
+graphemes: Graphemes,
+s1: []const u16,
+s2: []const i4,
+owns_graphemes: bool,
 
 const DisplayWidth = @This();
 
-pub fn init(allocator: Allocator) Allocator.Error!DisplayWidth {
-    var dw = DisplayWidth{};
-    try dw.setup(allocator);
-    errdefer {
-        allocator.free(dw.s1);
-        allocator.free(dw.s2);
-    }
-    dw.owns_graphemes = true;
-    dw.graphemes = try Graphemes.init(allocator);
-    errdefer dw.graphemes.deinit(allocator);
-    return dw;
+pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!DisplayWidth {
+    const graphemes: Graphemes = try .init(allocator);
+    errdefer graphemes.deinit(allocator);
+
+    var ret = try initWithGraphemes(allocator, graphemes);
+    ret.owns_graphemes = true;
+    return ret;
 }
 
-pub fn initWithGraphemes(allocator: Allocator, graphemes: Graphemes) Allocator.Error!DisplayWidth {
-    var dw = DisplayWidth{};
-    try dw.setup(allocator);
-    dw.graphemes = graphemes;
-    dw.owns_graphemes = false;
-    return dw;
+pub fn initWithGraphemes(
+    allocator: std.mem.Allocator,
+    graphemes: Graphemes,
+) std.mem.Allocator.Error!DisplayWidth {
+    var in_fbs = std.io.fixedBufferStream(@embedFile("dwp"));
+    var in_decomp = std.compress.flate.inflate.decompressor(.raw, in_fbs.reader());
+    const reader = in_decomp.reader();
+
+    const Header = extern struct {
+        s1_len: u32,
+        s2_len: u32,
+    };
+
+    const header = reader.readStruct(Header) catch unreachable;
+    const data = try allocator.alignedAlloc(u8, .of(u16), header.s1_len * 2 + header.s2_len);
+    _ = reader.readAll(data) catch unreachable;
+    const s1: []const u16 = @ptrCast(data[0 .. header.s1_len * 2]);
+    const s2: []const i4 = @ptrCast(data[header.s1_len * 2 ..]);
+    std.debug.assert(s2.len == header.s2_len);
+
+    return .{
+        .graphemes = graphemes,
+        .owns_graphemes = false,
+        .s1 = s1,
+        .s2 = s2,
+    };
 }
 
-pub fn setupWithGraphemes(dw: *DisplayWidth, allocator: Allocator, graphemes: Graphemes) Allocator.Error!void {
-    try dw.setup(allocator);
-    dw.graphemes = graphemes;
-    dw.owns_graphemes = false;
-}
-
-// Sets up the DisplayWidthData, leaving the GraphemeData undefined.
-pub fn setup(dw: *DisplayWidth, allocator: Allocator) Allocator.Error!void {
-    const decompressor = compress.flate.inflate.decompressor;
-    const in_bytes = @embedFile("dwp");
-    var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = decompressor(.raw, in_fbs.reader());
-    var reader = in_decomp.reader();
-
-    const endian = builtin.cpu.arch.endian();
-
-    const stage_1_len: u16 = reader.readInt(u16, endian) catch unreachable;
-    dw.s1 = try allocator.alloc(u16, stage_1_len);
-    errdefer allocator.free(dw.s1);
-    for (0..stage_1_len) |i| dw.s1[i] = reader.readInt(u16, endian) catch unreachable;
-
-    const stage_2_len: u16 = reader.readInt(u16, endian) catch unreachable;
-    dw.s2 = try allocator.alloc(i4, stage_2_len);
-    errdefer allocator.free(dw.s2);
-    for (0..stage_2_len) |i| dw.s2[i] = @intCast(reader.readInt(i8, endian) catch unreachable);
-}
-
-pub fn deinit(dw: *const DisplayWidth, allocator: Allocator) void {
-    allocator.free(dw.s1);
-    allocator.free(dw.s2);
+pub fn deinit(dw: *const DisplayWidth, allocator: std.mem.Allocator) void {
+    const ptr: [*]const u8 = @ptrCast(dw.s1.ptr);
+    const bytes = ptr[0 .. dw.s1.len * 2 + dw.s2.len];
+    allocator.free(bytes);
     if (dw.owns_graphemes) dw.graphemes.deinit(allocator);
 }
 
@@ -76,30 +71,30 @@ pub fn codePointWidth(dw: DisplayWidth, cp: u21) i4 {
 test "codePointWidth" {
     const dw = try DisplayWidth.init(std.testing.allocator);
     defer dw.deinit(std.testing.allocator);
-    try testing.expectEqual(@as(i4, 0), dw.codePointWidth(0x0000)); // null
-    try testing.expectEqual(@as(i4, -1), dw.codePointWidth(0x8)); // \b
-    try testing.expectEqual(@as(i4, -1), dw.codePointWidth(0x7f)); // DEL
-    try testing.expectEqual(@as(i4, 0), dw.codePointWidth(0x0005)); // Cf
-    try testing.expectEqual(@as(i4, 0), dw.codePointWidth(0x0007)); // \a BEL
-    try testing.expectEqual(@as(i4, 0), dw.codePointWidth(0x000A)); // \n LF
-    try testing.expectEqual(@as(i4, 0), dw.codePointWidth(0x000B)); // \v VT
-    try testing.expectEqual(@as(i4, 0), dw.codePointWidth(0x000C)); // \f FF
-    try testing.expectEqual(@as(i4, 0), dw.codePointWidth(0x000D)); // \r CR
-    try testing.expectEqual(@as(i4, 0), dw.codePointWidth(0x000E)); // SQ
-    try testing.expectEqual(@as(i4, 0), dw.codePointWidth(0x000F)); // SI
+    try testing.expectEqual(0, dw.codePointWidth(0x0000)); // null
+    try testing.expectEqual(-1, dw.codePointWidth(0x8)); // \b
+    try testing.expectEqual(-1, dw.codePointWidth(0x7f)); // DEL
+    try testing.expectEqual(0, dw.codePointWidth(0x0005)); // Cf
+    try testing.expectEqual(0, dw.codePointWidth(0x0007)); // \a BEL
+    try testing.expectEqual(0, dw.codePointWidth(0x000A)); // \n LF
+    try testing.expectEqual(0, dw.codePointWidth(0x000B)); // \v VT
+    try testing.expectEqual(0, dw.codePointWidth(0x000C)); // \f FF
+    try testing.expectEqual(0, dw.codePointWidth(0x000D)); // \r CR
+    try testing.expectEqual(0, dw.codePointWidth(0x000E)); // SQ
+    try testing.expectEqual(0, dw.codePointWidth(0x000F)); // SI
 
-    try testing.expectEqual(@as(i4, 0), dw.codePointWidth(0x070F)); // Cf
-    try testing.expectEqual(@as(i4, 1), dw.codePointWidth(0x0603)); // Cf Arabic
+    try testing.expectEqual(0, dw.codePointWidth(0x070F)); // Cf
+    try testing.expectEqual(1, dw.codePointWidth(0x0603)); // Cf Arabic
 
-    try testing.expectEqual(@as(i4, 1), dw.codePointWidth(0x00AD)); // soft-hyphen
-    try testing.expectEqual(@as(i4, 2), dw.codePointWidth(0x2E3A)); // two-em dash
-    try testing.expectEqual(@as(i4, 3), dw.codePointWidth(0x2E3B)); // three-em dash
+    try testing.expectEqual(1, dw.codePointWidth(0x00AD)); // soft-hyphen
+    try testing.expectEqual(2, dw.codePointWidth(0x2E3A)); // two-em dash
+    try testing.expectEqual(3, dw.codePointWidth(0x2E3B)); // three-em dash
 
-    try testing.expectEqual(@as(i4, 1), dw.codePointWidth(0x00BD)); // ambiguous halfwidth
+    try testing.expectEqual(1, dw.codePointWidth(0x00BD)); // ambiguous halfwidth
 
-    try testing.expectEqual(@as(i4, 1), dw.codePointWidth('é'));
-    try testing.expectEqual(@as(i4, 2), dw.codePointWidth('😊'));
-    try testing.expectEqual(@as(i4, 2), dw.codePointWidth('统'));
+    try testing.expectEqual(1, dw.codePointWidth('é'));
+    try testing.expectEqual(2, dw.codePointWidth('😊'));
+    try testing.expectEqual(2, dw.codePointWidth('统'));
 }
 
 /// strWidth returns the total display width of `str` as the number of cells
@@ -149,19 +144,19 @@ test "strWidth" {
     defer dw.deinit(testing.allocator);
     const c0 = options.c0_width orelse 0;
 
-    try testing.expectEqual(@as(usize, 5), dw.strWidth("Hello\r\n"));
-    try testing.expectEqual(@as(usize, 1), dw.strWidth("\u{0065}\u{0301}"));
-    try testing.expectEqual(@as(usize, 2), dw.strWidth("\u{1F476}\u{1F3FF}\u{0308}\u{200D}\u{1F476}\u{1F3FF}"));
-    try testing.expectEqual(@as(usize, 8), dw.strWidth("Hello 😊"));
-    try testing.expectEqual(@as(usize, 8), dw.strWidth("Héllo 😊"));
-    try testing.expectEqual(@as(usize, 8), dw.strWidth("Héllo :)"));
-    try testing.expectEqual(@as(usize, 8), dw.strWidth("Héllo 🇪🇸"));
-    try testing.expectEqual(@as(usize, 2), dw.strWidth("\u{26A1}")); // Lone emoji
-    try testing.expectEqual(@as(usize, 1), dw.strWidth("\u{26A1}\u{FE0E}")); // Text sequence
-    try testing.expectEqual(@as(usize, 2), dw.strWidth("\u{26A1}\u{FE0F}")); // Presentation sequence
-    try testing.expectEqual(@as(usize, 1), dw.strWidth("\u{2764}")); // Default text presentation
-    try testing.expectEqual(@as(usize, 1), dw.strWidth("\u{2764}\u{FE0E}")); // Default text presentation with VS15 selector
-    try testing.expectEqual(@as(usize, 2), dw.strWidth("\u{2764}\u{FE0F}")); // Default text presentation with VS16 selector
+    try testing.expectEqual(5, dw.strWidth("Hello\r\n"));
+    try testing.expectEqual(1, dw.strWidth("\u{0065}\u{0301}"));
+    try testing.expectEqual(2, dw.strWidth("\u{1F476}\u{1F3FF}\u{0308}\u{200D}\u{1F476}\u{1F3FF}"));
+    try testing.expectEqual(8, dw.strWidth("Hello 😊"));
+    try testing.expectEqual(8, dw.strWidth("Héllo 😊"));
+    try testing.expectEqual(8, dw.strWidth("Héllo :)"));
+    try testing.expectEqual(8, dw.strWidth("Héllo 🇪🇸"));
+    try testing.expectEqual(2, dw.strWidth("\u{26A1}")); // Lone emoji
+    try testing.expectEqual(1, dw.strWidth("\u{26A1}\u{FE0E}")); // Text sequence
+    try testing.expectEqual(2, dw.strWidth("\u{26A1}\u{FE0F}")); // Presentation sequence
+    try testing.expectEqual(1, dw.strWidth("\u{2764}")); // Default text presentation
+    try testing.expectEqual(1, dw.strWidth("\u{2764}\u{FE0E}")); // Default text presentation with VS15 selector
+    try testing.expectEqual(2, dw.strWidth("\u{2764}\u{FE0F}")); // Default text presentation with VS16 selector
     const expect_bs: usize = if (c0 == 0) 0 else 1 + c0;
     try testing.expectEqual(expect_bs, dw.strWidth("A\x08")); // Backspace
     try testing.expectEqual(expect_bs, dw.strWidth("\x7FA")); // DEL
@@ -170,15 +165,15 @@ test "strWidth" {
 
     // wcwidth Python lib tests. See: https://github.com/jquast/wcwidth/blob/master/tests/test_core.py
     const empty = "";
-    try testing.expectEqual(@as(usize, 0), dw.strWidth(empty));
+    try testing.expectEqual(0, dw.strWidth(empty));
     const with_null = "hello\x00world";
-    try testing.expectEqual(@as(usize, 10 + c0), dw.strWidth(with_null));
+    try testing.expectEqual(10 + c0, dw.strWidth(with_null));
     const hello_jp = "コンニチハ, セカイ!";
-    try testing.expectEqual(@as(usize, 19), dw.strWidth(hello_jp));
+    try testing.expectEqual(19, dw.strWidth(hello_jp));
     const control = "\x1b[0m";
-    try testing.expectEqual(@as(usize, 3 + c0), dw.strWidth(control));
+    try testing.expectEqual(3 + c0, dw.strWidth(control));
     const balinese = "\u{1B13}\u{1B28}\u{1B2E}\u{1B44}";
-    try testing.expectEqual(@as(usize, 3), dw.strWidth(balinese));
+    try testing.expectEqual(3, dw.strWidth(balinese));
 
     // These commented out tests require a new specification for complex scripts.
     // See: https://www.unicode.org/L2/L2023/23107-terminal-suppt.pdf
@@ -192,17 +187,17 @@ test "strWidth" {
     // try testing.expectEqual(@as(usize, 3), strWidth(kannada_1));
     // The following passes but as a mere coincidence.
     const kannada_2 = "\u{0cb0}\u{0cbc}\u{0ccd}\u{0c9a}";
-    try testing.expectEqual(@as(usize, 2), dw.strWidth(kannada_2));
+    try testing.expectEqual(2, dw.strWidth(kannada_2));
 
     // From Rust https://github.com/jameslanska/unicode-display-width
-    try testing.expectEqual(@as(usize, 15), dw.strWidth("🔥🗡🍩👩🏻‍🚀⏰💃🏼🔦👍🏻"));
-    try testing.expectEqual(@as(usize, 2), dw.strWidth("🦀"));
-    try testing.expectEqual(@as(usize, 2), dw.strWidth("👨‍👩‍👧‍👧"));
-    try testing.expectEqual(@as(usize, 2), dw.strWidth("👩‍🔬"));
-    try testing.expectEqual(@as(usize, 9), dw.strWidth("sane text"));
-    try testing.expectEqual(@as(usize, 9), dw.strWidth("Ẓ̌á̲l͔̝̞̄̑͌g̖̘̘̔̔͢͞͝o̪̔T̢̙̫̈̍͞e̬͈͕͌̏͑x̺̍ṭ̓̓ͅ"));
-    try testing.expectEqual(@as(usize, 17), dw.strWidth("슬라바 우크라이나"));
-    try testing.expectEqual(@as(usize, 1), dw.strWidth("\u{378}"));
+    try testing.expectEqual(15, dw.strWidth("🔥🗡🍩👩🏻‍🚀⏰💃🏼🔦👍🏻"));
+    try testing.expectEqual(2, dw.strWidth("🦀"));
+    try testing.expectEqual(2, dw.strWidth("👨‍👩‍👧‍👧"));
+    try testing.expectEqual(2, dw.strWidth("👩‍🔬"));
+    try testing.expectEqual(9, dw.strWidth("sane text"));
+    try testing.expectEqual(9, dw.strWidth("Ẓ̌á̲l͔̝̞̄̑͌g̖̘̘̔̔͢͞͝o̪̔T̢̙̫̈̍͞e̬͈͕͌̏͑x̺̍ṭ̓̓ͅ"));
+    try testing.expectEqual(17, dw.strWidth("슬라바 우크라이나"));
+    try testing.expectEqual(1, dw.strWidth("\u{378}"));
 }
 
 /// centers `str` in a new string of width `total_width` (in display cells) using `pad` as padding.
@@ -211,7 +206,7 @@ test "strWidth" {
 /// Caller must free returned bytes with `allocator`.
 pub fn center(
     dw: DisplayWidth,
-    allocator: mem.Allocator,
+    allocator: std.mem.Allocator,
     str: []const u8,
     total_width: usize,
     pad: []const u8,
@@ -297,7 +292,7 @@ test "center" {
 /// on the left side. Caller must free returned bytes with `allocator`.
 pub fn padLeft(
     dw: DisplayWidth,
-    allocator: mem.Allocator,
+    allocator: std.mem.Allocator,
     str: []const u8,
     total_width: usize,
     pad: []const u8,
@@ -345,7 +340,7 @@ test "padLeft" {
 /// on the right side.  Caller must free returned bytes with `allocator`.
 pub fn padRight(
     dw: DisplayWidth,
-    allocator: mem.Allocator,
+    allocator: std.mem.Allocator,
     str: []const u8,
     total_width: usize,
     pad: []const u8,
@@ -395,19 +390,19 @@ test "padRight" {
 /// from the edge. Caller must free returned bytes with `allocator`.
 pub fn wrap(
     dw: DisplayWidth,
-    allocator: mem.Allocator,
+    allocator: std.mem.Allocator,
     str: []const u8,
     columns: usize,
     threshold: usize,
 ) ![]u8 {
-    var result = ArrayList(u8).init(allocator);
+    var result = std.ArrayList(u8).init(allocator);
     defer result.deinit();
 
-    var line_iter = mem.tokenizeAny(u8, str, "\r\n");
+    var line_iter = std.mem.tokenizeAny(u8, str, "\r\n");
     var line_width: usize = 0;
 
     while (line_iter.next()) |line| {
-        var word_iter = mem.tokenizeScalar(u8, line, ' ');
+        var word_iter = std.mem.tokenizeScalar(u8, line, ' ');
 
         while (word_iter.next()) |word| {
             try result.appendSlice(word);
@@ -440,7 +435,7 @@ test "wrap" {
     try testing.expectEqualStrings(want, got);
 }
 
-fn testAllocation(allocator: Allocator) !void {
+fn testAllocation(allocator: std.mem.Allocator) !void {
     {
         var dw = try DisplayWidth.init(allocator);
         dw.deinit(allocator);
@@ -456,18 +451,3 @@ fn testAllocation(allocator: Allocator) !void {
 test "allocation test" {
     try testing.checkAllAllocationFailures(testing.allocator, testAllocation, .{});
 }
-
-const std = @import("std");
-const builtin = @import("builtin");
-const options = @import("options");
-const ArrayList = std.ArrayList;
-const compress = std.compress;
-const mem = std.mem;
-const Allocator = mem.Allocator;
-const simd = std.simd;
-const testing = std.testing;
-
-const ascii = @import("ascii");
-const CodePointIterator = @import("code_point").Iterator;
-
-const Graphemes = @import("Graphemes");

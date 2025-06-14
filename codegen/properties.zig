@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const mem = std.mem;
 
 const block_size = 256;
 const Block = [block_size]u8;
@@ -16,33 +15,33 @@ const BlockMap = std.HashMap(
         }
 
         pub fn eql(_: @This(), a: Block, b: Block) bool {
-            return mem.eql(u8, &a, &b);
+            return std.mem.eql(u8, &a, &b);
         }
     },
     std.hash_map.default_max_load_percentage,
 );
 
-pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
+pub fn fromFile(
+    allocator: std.mem.Allocator,
+    filepath: []const u8,
+    field_names: []const []const u8,
+) !struct { []const u16, []const u8 } {
     var flat_map = std.AutoHashMap(u21, u8).init(allocator);
     defer flat_map.deinit();
 
     var line_buf: [4096]u8 = undefined;
 
     // Process DerivedNumericType.txt
-    var in_file = try std.fs.cwd().openFile("data/unicode/extracted/DerivedNumericType.txt", .{});
+    const in_file = try std.fs.cwd().openFile(filepath, .{});
     defer in_file.close();
     var in_buf = std.io.bufferedReader(in_file.reader());
     const in_reader = in_buf.reader();
 
     while (try in_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
-        const no_comment = if (mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
+        const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
 
-        var field_iter = mem.tokenizeAny(u8, no_comment, "; ");
+        var field_iter = std.mem.tokenizeAny(u8, no_comment, "; ");
         var current_code: [2]u21 = undefined;
 
         var i: usize = 0;
@@ -50,7 +49,7 @@ pub fn main() !void {
             switch (i) {
                 0 => {
                     // Code point(s)
-                    if (mem.indexOf(u8, field, "..")) |dots| {
+                    if (std.mem.indexOf(u8, field, "..")) |dots| {
                         current_code = .{
                             try std.fmt.parseInt(u21, field[0..dots], 16),
                             try std.fmt.parseInt(u21, field[dots + 2 ..], 16),
@@ -61,18 +60,15 @@ pub fn main() !void {
                     }
                 },
                 1 => {
-                    // Numeric type
-                    var bit: u8 = 0;
-
-                    if (mem.eql(u8, field, "Numeric")) bit = 1;
-                    if (mem.eql(u8, field, "Digit")) bit = 2;
-                    if (mem.eql(u8, field, "Decimal")) bit = 4;
-
-                    if (bit != 0) {
-                        for (current_code[0]..current_code[1] + 1) |cp| {
-                            const gop = try flat_map.getOrPut(@intCast(cp));
-                            if (!gop.found_existing) gop.value_ptr.* = 0;
-                            gop.value_ptr.* |= bit;
+                    for (field_names, 0..) |name, j| {
+                        if (std.mem.eql(u8, field, name)) {
+                            const bit = @as(u8, 1) << @intCast(j);
+                            for (current_code[0]..current_code[1] + 1) |cp| {
+                                const gop = try flat_map.getOrPut(@intCast(cp));
+                                if (!gop.found_existing) gop.value_ptr.* = 0;
+                                gop.value_ptr.* |= bit;
+                            }
+                            break;
                         }
                     }
                 },
@@ -113,6 +109,44 @@ pub fn main() !void {
         block_len = 0;
     }
 
+    return .{
+        try stage1.toOwnedSlice(),
+        try stage2.toOwnedSlice(),
+    };
+}
+pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var flat_map = std.AutoHashMap(u21, u8).init(allocator);
+    defer flat_map.deinit();
+
+    const core_path = "data/unicode/DerivedCoreProperties.txt";
+    const props_path = "data/unicode/PropList.txt";
+    const num_path = "data/unicode/extracted/DerivedNumericType.txt";
+
+    const s1, const s2 = try fromFile(allocator, core_path, &.{
+        "Math",
+        "Alphabetic",
+        "ID_Start",
+        "ID_Continue",
+        "XID_Start",
+        "XID_Continue",
+    });
+
+    const s3, const s4 = try fromFile(allocator, props_path, &.{
+        "White_Space",
+        "Hex_Digit",
+        "Diacritic",
+    });
+
+    const s5, const s6 = try fromFile(allocator, num_path, &.{
+        "Numeric",
+        "Digit",
+        "Decimal",
+    });
+
     var args_iter = try std.process.argsWithAllocator(allocator);
     defer args_iter.deinit();
     _ = args_iter.skip();
@@ -124,12 +158,19 @@ pub fn main() !void {
     var out_comp = try compressor(.raw, out_file.writer(), .{ .level = .best });
     const writer = out_comp.writer();
 
-    const endian = builtin.cpu.arch.endian();
-    try writer.writeInt(u16, @intCast(stage1.items.len), endian);
-    for (stage1.items) |i| try writer.writeInt(u16, i, endian);
-
-    try writer.writeInt(u16, @intCast(stage2.items.len), endian);
-    try writer.writeAll(stage2.items);
+    const endian = @import("options").target_endian;
+    try writer.writeInt(u16, @intCast(s1.len), endian);
+    try writer.writeInt(u16, @intCast(s2.len), endian);
+    try writer.writeInt(u16, @intCast(s3.len), endian);
+    try writer.writeInt(u16, @intCast(s4.len), endian);
+    try writer.writeInt(u16, @intCast(s5.len), endian);
+    try writer.writeInt(u16, @intCast(s6.len), endian);
+    for (s1) |i| try writer.writeInt(u16, i, endian);
+    try writer.writeAll(s2);
+    for (s3) |i| try writer.writeInt(u16, i, endian);
+    try writer.writeAll(s4);
+    for (s5) |i| try writer.writeInt(u16, i, endian);
+    try writer.writeAll(s6);
 
     try out_comp.flush();
 }

@@ -1,36 +1,39 @@
-//! Normalization Properties Data
+const std = @import("std");
+const testing = std.testing;
+const builtin = @import("builtin");
 
-s1: []u16 = undefined,
-s2: []u4 = undefined,
+s1: []u16,
+s2: []u4,
 
 const NormProps = @This();
 
-pub fn init(allocator: mem.Allocator) !NormProps {
-    const decompressor = compress.flate.inflate.decompressor;
-    const in_bytes = @embedFile("normp");
-    var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = decompressor(.raw, in_fbs.reader());
+pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!NormProps {
+    var in_fbs = std.io.fixedBufferStream(@embedFile("normp"));
+    var in_decomp = std.compress.flate.inflate.decompressor(.raw, in_fbs.reader());
     var reader = in_decomp.reader();
 
-    const endian = builtin.cpu.arch.endian();
-    var norms = NormProps{};
+    const Header = extern struct {
+        s1_len: u16,
+        s2_len: u16,
+    };
 
-    const stage_1_len: u16 = try reader.readInt(u16, endian);
-    norms.s1 = try allocator.alloc(u16, stage_1_len);
-    errdefer allocator.free(norms.s1);
-    for (0..stage_1_len) |i| norms.s1[i] = try reader.readInt(u16, endian);
+    const header = reader.readStruct(Header) catch unreachable;
+    const total_size = @as(usize, header.s1_len) * 2 + header.s2_len;
+    const bytes = try allocator.alignedAlloc(u8, .of(u16), total_size);
+    errdefer allocator.free(bytes);
+    const bytes_read = reader.readAll(bytes) catch unreachable;
+    std.debug.assert(bytes_read == total_size);
 
-    const stage_2_len: u16 = try reader.readInt(u16, endian);
-    norms.s2 = try allocator.alloc(u4, stage_2_len);
-    errdefer allocator.free(norms.s2);
-    for (0..stage_2_len) |i| norms.s2[i] = @intCast(try reader.readInt(u8, endian));
-
-    return norms;
+    return .{
+        .s1 = @ptrCast(bytes[0 .. header.s1_len * 2]),
+        .s2 = @ptrCast(bytes[header.s1_len * 2 ..]),
+    };
 }
 
-pub fn deinit(norms: *const NormProps, allocator: mem.Allocator) void {
-    allocator.free(norms.s1);
-    allocator.free(norms.s2);
+pub fn deinit(norms: *const NormProps, allocator: std.mem.Allocator) void {
+    const ptr: [*]align(2) const u8 = @ptrCast(norms.s1.ptr);
+    const total_size = norms.s1.len * 2 + norms.s2.len;
+    allocator.free(ptr[0..total_size]);
 }
 
 /// Returns true if `cp` is already in NFD form.
@@ -47,9 +50,3 @@ pub fn isNfkd(norms: *const NormProps, cp: u21) bool {
 pub fn isFcx(norms: *const NormProps, cp: u21) bool {
     return norms.s2[norms.s1[cp >> 8] + (cp & 0xff)] & 4 == 4;
 }
-
-const std = @import("std");
-const builtin = @import("builtin");
-const compress = std.compress;
-const mem = std.mem;
-const testing = std.testing;

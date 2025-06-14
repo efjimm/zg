@@ -1,92 +1,88 @@
-cutoff: u21 = undefined,
-cwcf_exceptions_min: u21 = undefined,
-cwcf_exceptions_max: u21 = undefined,
-cwcf_exceptions: []u21 = undefined,
-multiple_start: u21 = undefined,
-stage1: []u8 = undefined,
-stage2: []u8 = undefined,
-stage3: []i24 = undefined,
+const std = @import("std");
+const builtin = @import("builtin");
+
+const ascii = @import("ascii.zig");
+const Normalize = @import("Normalize.zig");
+
+cutoff: u21,
+cwcf_exceptions_min: u21,
+cwcf_exceptions_max: u21,
+cwcf_exceptions: []const u21,
+multiple_start: u21,
+s1: []const u8,
+s2: []const u8,
+s3: []const i24,
 normalize: Normalize,
 owns_normalize: bool,
 
 const CaseFolding = @This();
 
-pub fn init(allocator: Allocator) Allocator.Error!CaseFolding {
-    var case_fold: CaseFolding = undefined;
-    try case_fold.setup(allocator);
+pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!CaseFolding {
+    const normalize: Normalize = try .init(allocator);
+    errdefer normalize.deinit(allocator);
+
+    var case_fold = try initWithNormalize(allocator, normalize);
+    case_fold.owns_normalize = true;
     return case_fold;
 }
 
-pub fn initWithNormalize(allocator: Allocator, norm: Normalize) Allocator.Error!CaseFolding {
-    var casefold: CaseFolding = undefined;
-    try casefold.setupWithNormalize(allocator, norm);
-    return casefold;
-}
+pub fn initWithNormalize(
+    allocator: std.mem.Allocator,
+    normalize: Normalize,
+) std.mem.Allocator.Error!CaseFolding {
+    const in_bytes = @embedFile("fold");
+    var in_fbs = std.io.fixedBufferStream(in_bytes);
+    var in_decomp = std.compress.flate.inflate.decompressor(.raw, in_fbs.reader());
+    var reader = in_decomp.reader();
 
-pub fn setup(casefold: *CaseFolding, allocator: Allocator) Allocator.Error!void {
-    try casefold.setupImpl(allocator);
-    // Handle normalize memory separately during setup:
-    casefold.owns_normalize = false;
-    errdefer casefold.deinit(allocator);
-    try casefold.normalize.setup(allocator);
-    casefold.owns_normalize = true;
-}
+    const Header = extern struct {
+        cutoff: u32,
+        multiple_start: u32,
 
-pub fn setupWithNormalize(casefold: *CaseFolding, allocator: Allocator, norm: Normalize) !void {
-    try casefold.setupImpl(allocator);
-    casefold.normalize = norm;
-    casefold.owns_normalize = false;
-}
+        s1_len: u32,
+        s2_len: u32,
+        s3_len: u32,
 
-fn setupImpl(casefold: *CaseFolding, allocator: Allocator) Allocator.Error!void {
-    casefold.setupImplInner(allocator) catch |err| {
-        switch (err) {
-            error.OutOfMemory => |e| return e,
-            else => unreachable,
-        }
+        cwcf_exceptions_min: u32,
+        cwcf_exceptions_max: u32,
+        cwcf_exceptions_len: u32,
+    };
+
+    const header = reader.readStruct(Header) catch unreachable;
+    const s3_size = header.s3_len * 4;
+    const cwcf_exceptions_size = header.cwcf_exceptions_len * 4;
+
+    const total_size = header.s1_len + header.s2_len + s3_size + cwcf_exceptions_size;
+    const bytes = try allocator.alignedAlloc(u8, .of(u32), total_size);
+    const bytes_read = reader.read(bytes) catch unreachable;
+    std.debug.assert(bytes_read == total_size);
+
+    const s3: []const i24 = @ptrCast(bytes[0..s3_size]);
+    const cwcf_exceptions: []const u21 = @ptrCast(@alignCast(
+        bytes[s3_size..][0..cwcf_exceptions_size],
+    ));
+    const s1 = bytes[s3_size + cwcf_exceptions_size ..][0..header.s1_len];
+    const s2 = bytes[s3_size + cwcf_exceptions_size + header.s1_len ..];
+    std.debug.assert(s2.len == header.s2_len);
+
+    return .{
+        .cutoff = @intCast(header.cutoff),
+        .multiple_start = @intCast(header.multiple_start),
+        .s1 = s1,
+        .s2 = s2,
+        .s3 = s3,
+        .cwcf_exceptions_min = @intCast(header.cwcf_exceptions_min),
+        .cwcf_exceptions_max = @intCast(header.cwcf_exceptions_max),
+        .cwcf_exceptions = cwcf_exceptions,
+        .owns_normalize = false,
+        .normalize = normalize,
     };
 }
 
-inline fn setupImplInner(casefold: *CaseFolding, allocator: Allocator) !void {
-    const decompressor = compress.flate.inflate.decompressor;
-    const in_bytes = @embedFile("fold");
-    var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = decompressor(.raw, in_fbs.reader());
-    var reader = in_decomp.reader();
-
-    const endian = builtin.cpu.arch.endian();
-
-    casefold.cutoff = @intCast(try reader.readInt(u24, endian));
-    casefold.multiple_start = @intCast(try reader.readInt(u24, endian));
-
-    var len = try reader.readInt(u16, endian);
-    casefold.stage1 = try allocator.alloc(u8, len);
-    errdefer allocator.free(casefold.stage1);
-    for (0..len) |i| casefold.stage1[i] = try reader.readInt(u8, endian);
-
-    len = try reader.readInt(u16, endian);
-    casefold.stage2 = try allocator.alloc(u8, len);
-    errdefer allocator.free(casefold.stage2);
-    for (0..len) |i| casefold.stage2[i] = try reader.readInt(u8, endian);
-
-    len = try reader.readInt(u16, endian);
-    casefold.stage3 = try allocator.alloc(i24, len);
-    errdefer allocator.free(casefold.stage3);
-    for (0..len) |i| casefold.stage3[i] = try reader.readInt(i24, endian);
-
-    casefold.cwcf_exceptions_min = @intCast(try reader.readInt(u24, endian));
-    casefold.cwcf_exceptions_max = @intCast(try reader.readInt(u24, endian));
-    len = try reader.readInt(u16, endian);
-    casefold.cwcf_exceptions = try allocator.alloc(u21, len);
-    errdefer allocator.free(casefold.cwcf_exceptions);
-    for (0..len) |i| casefold.cwcf_exceptions[i] = @intCast(try reader.readInt(u24, endian));
-}
-
-pub fn deinit(fdata: *const CaseFolding, allocator: mem.Allocator) void {
-    allocator.free(fdata.stage1);
-    allocator.free(fdata.stage2);
-    allocator.free(fdata.stage3);
-    allocator.free(fdata.cwcf_exceptions);
+pub fn deinit(fdata: *const CaseFolding, allocator: std.mem.Allocator) void {
+    const total_size = fdata.s1.len + fdata.s2.len + fdata.s3.len * 4 + fdata.cwcf_exceptions.len * 4;
+    const slice: []align(4) const u8 = @alignCast(fdata.s1.ptr[0..total_size]);
+    allocator.free(slice);
     if (fdata.owns_normalize) fdata.normalize.deinit(allocator);
 }
 
@@ -94,21 +90,21 @@ pub fn deinit(fdata: *const CaseFolding, allocator: mem.Allocator) void {
 pub fn caseFold(fdata: *const CaseFolding, cp: u21, buf: []u21) []const u21 {
     if (cp >= fdata.cutoff) return &.{};
 
-    const stage1_val = fdata.stage1[cp >> 8];
+    const stage1_val = fdata.s1[cp >> 8];
     if (stage1_val == 0) return &.{};
 
     const stage2_index = @as(usize, stage1_val) * 256 + (cp & 0xFF);
-    const stage3_index = fdata.stage2[stage2_index];
+    const stage3_index = fdata.s2[stage2_index];
 
     if (stage3_index & 0x80 != 0) {
         const real_index = @as(usize, fdata.multiple_start) + (stage3_index ^ 0x80) * 3;
-        const mapping = mem.sliceTo(fdata.stage3[real_index..][0..3], 0);
+        const mapping = std.mem.sliceTo(fdata.s3[real_index..][0..3], 0);
         for (mapping, 0..) |c, i| buf[i] = @intCast(c);
 
         return buf[0..mapping.len];
     }
 
-    const offset = fdata.stage3[stage3_index];
+    const offset = fdata.s3[stage3_index];
     if (offset == 0) return &.{};
 
     buf[0] = @intCast(@as(i32, cp) + offset);
@@ -120,9 +116,9 @@ pub fn caseFold(fdata: *const CaseFolding, cp: u21, buf: []u21) []const u21 {
 /// slice with `allocator`.
 pub fn caseFoldAlloc(
     casefold: *const CaseFolding,
-    allocator: Allocator,
+    allocator: std.mem.Allocator,
     cps: []const u21,
-) Allocator.Error![]const u21 {
+) std.mem.Allocator.Error![]const u21 {
     var cfcps = std.ArrayList(u21).init(allocator);
     defer cfcps.deinit();
     var buf: [3]u21 = undefined;
@@ -163,10 +159,10 @@ fn isCwcfException(casefold: *const CaseFolding, cp: u21) bool {
 /// comprehensive comparison possible, but slower than `canonCaselessMatch`.
 pub fn compatCaselessMatch(
     casefold: *const CaseFolding,
-    allocator: Allocator,
+    allocator: std.mem.Allocator,
     a: []const u8,
     b: []const u8,
-) Allocator.Error!bool {
+) std.mem.Allocator.Error!bool {
     if (ascii.isAsciiOnly(a) and ascii.isAsciiOnly(b)) return std.ascii.eqlIgnoreCase(a, b);
 
     // Process a
@@ -207,33 +203,33 @@ pub fn compatCaselessMatch(
     const nfkd_cf_nfkd_cf_nfd_b = try casefold.normalize.nfkdCodePoints(allocator, cf_nfkd_cf_nfd_b);
     defer allocator.free(nfkd_cf_nfkd_cf_nfd_b);
 
-    return mem.eql(u21, nfkd_cf_nfkd_cf_nfd_a, nfkd_cf_nfkd_cf_nfd_b);
+    return std.mem.eql(u21, nfkd_cf_nfkd_cf_nfd_a, nfkd_cf_nfkd_cf_nfd_b);
 }
 
 test "compatCaselessMatch" {
-    const allocator = testing.allocator;
+    const allocator = std.testing.allocator;
 
     const caser = try CaseFolding.init(allocator);
     defer caser.deinit(allocator);
 
-    try testing.expect(try caser.compatCaselessMatch(allocator, "ascii only!", "ASCII Only!"));
+    try std.testing.expect(try caser.compatCaselessMatch(allocator, "ascii only!", "ASCII Only!"));
 
     const a = "Héllo World! \u{3d3}";
     const b = "He\u{301}llo World! \u{3a5}\u{301}";
-    try testing.expect(try caser.compatCaselessMatch(allocator, a, b));
+    try std.testing.expect(try caser.compatCaselessMatch(allocator, a, b));
 
     const c = "He\u{301}llo World! \u{3d2}\u{301}";
-    try testing.expect(try caser.compatCaselessMatch(allocator, a, c));
+    try std.testing.expect(try caser.compatCaselessMatch(allocator, a, c));
 }
 
 /// Performs canonical caseless string matching by decomposing to NFD. This is
 /// faster than `compatCaselessMatch`, but less comprehensive.
 pub fn canonCaselessMatch(
     casefold: *const CaseFolding,
-    allocator: Allocator,
+    allocator: std.mem.Allocator,
     a: []const u8,
     b: []const u8,
-) Allocator.Error!bool {
+) std.mem.Allocator.Error!bool {
     if (ascii.isAsciiOnly(a) and ascii.isAsciiOnly(b)) return std.ascii.eqlIgnoreCase(a, b);
 
     // Process a
@@ -276,26 +272,26 @@ pub fn canonCaselessMatch(
     }
     defer if (need_free_nfd_cf_nfd_b) allocator.free(nfd_cf_nfd_b);
 
-    return mem.eql(u21, nfd_cf_nfd_a, nfd_cf_nfd_b);
+    return std.mem.eql(u21, nfd_cf_nfd_a, nfd_cf_nfd_b);
 }
 
 test "canonCaselessMatch" {
-    const allocator = testing.allocator;
+    const allocator = std.testing.allocator;
 
     const caser = try CaseFolding.init(allocator);
     defer caser.deinit(allocator);
 
-    try testing.expect(try caser.canonCaselessMatch(allocator, "ascii only!", "ASCII Only!"));
+    try std.testing.expect(try caser.canonCaselessMatch(allocator, "ascii only!", "ASCII Only!"));
 
     const a = "Héllo World! \u{3d3}";
     const b = "He\u{301}llo World! \u{3a5}\u{301}";
-    try testing.expect(!try caser.canonCaselessMatch(allocator, a, b));
+    try std.testing.expect(!try caser.canonCaselessMatch(allocator, a, b));
 
     const c = "He\u{301}llo World! \u{3d2}\u{301}";
-    try testing.expect(try caser.canonCaselessMatch(allocator, a, c));
+    try std.testing.expect(try caser.canonCaselessMatch(allocator, a, c));
 }
 
-fn testAllocations(allocator: Allocator) !void {
+fn testAllocations(allocator: std.mem.Allocator) !void {
     // With normalize provided
     {
         const normalize = try Normalize.init(allocator);
@@ -311,20 +307,9 @@ fn testAllocations(allocator: Allocator) !void {
 }
 
 test "Allocation Failures" {
-    try testing.checkAllAllocationFailures(
-        testing.allocator,
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
         testAllocations,
         .{},
     );
 }
-
-const std = @import("std");
-const builtin = @import("builtin");
-const mem = std.mem;
-const testing = std.testing;
-const Allocator = mem.Allocator;
-
-const ascii = @import("ascii");
-const Normalize = @import("Normalize");
-
-const compress = std.compress;
