@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Normalize = @import("Normalize");
+const Normalize = @import("zg").Normalize;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);

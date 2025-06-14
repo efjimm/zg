@@ -1,6 +1,5 @@
 const std = @import("std");
-
-const Graphemes = @import("Graphemes");
+const Graphemes = @import("zg").Graphemes;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);

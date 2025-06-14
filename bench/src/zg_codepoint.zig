@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const code_point = @import("code_point");
+const code_point = @import("zg").codepoint;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);

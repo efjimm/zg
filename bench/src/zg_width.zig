@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const DisplayWidth = @import("DisplayWidth");
+const DisplayWidth = @import("zg").DisplayWidth;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const CaseFolding = @import("CaseFolding");
+const CaseFolding = @import("zg").CaseFolding;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);

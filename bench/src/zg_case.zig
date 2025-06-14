@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const LetterCasing = @import("LetterCasing");
+const LetterCasing = @import("zg").LetterCasing;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);

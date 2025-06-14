@@ -10,7 +10,7 @@ prop_s2: []u8,
 
 const LetterCasing = @This();
 
-fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!LetterCasing {
+pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!LetterCasing {
     const decompressor = std.compress.flate.inflate.decompressor;
     const endian = builtin.cpu.arch.endian();
 
