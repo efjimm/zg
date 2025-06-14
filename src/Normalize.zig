@@ -36,6 +36,7 @@ pub fn init(allocator: Allocator) Allocator.Error!Normalize {
     errdefer hangul_data.deinit(allocator);
 
     const normp_data: NormPropsData = try .init(allocator);
+    errdefer normp_data.deinit(allocator);
 
     return .{
         .canon_data = canon_data,
@@ -64,7 +65,7 @@ const TCount: u21 = 28;
 const NCount: u21 = 588; // VCount * TCount
 const SCount: u21 = 11172; // LCount * NCount
 
-fn decomposeHangul(self: Normalize, cp: u21, buf: []u21) ?Decomp {
+fn decomposeHangul(self: *const Normalize, cp: u21, buf: []u21) ?Decomp {
     const kind = self.hangul_data.syllable(cp);
     if (kind != .LV and kind != .LVT) return null;
 
@@ -124,7 +125,7 @@ const Decomp = struct {
 };
 
 // `mapping` retrieves the decomposition mapping for a code point as per the UCD.
-fn mapping(self: Normalize, cp: u21, form: Form) Decomp {
+fn mapping(self: *const Normalize, cp: u21, form: Form) Decomp {
     var dc = Decomp{};
 
     switch (form) {
@@ -151,7 +152,7 @@ fn mapping(self: Normalize, cp: u21, form: Form) Decomp {
 
 // `decompose` a code point to the specified normalization form, which should be either `.nfd` or `.nfkd`.
 fn decompose(
-    self: Normalize,
+    self: *const Normalize,
     cp: u21,
     form: Form,
     buf: []u21,
@@ -271,12 +272,12 @@ pub const Result = struct {
 };
 
 // Compares code points by Canonical Combining Class order.
-fn cccLess(self: Normalize, lhs: u21, rhs: u21) bool {
+fn cccLess(self: *const Normalize, lhs: u21, rhs: u21) bool {
     return self.ccc_data.ccc(lhs) < self.ccc_data.ccc(rhs);
 }
 
 // Applies the Canonical Sorting Algorithm.
-fn canonicalSort(self: Normalize, cps: []u21) void {
+fn canonicalSort(self: *const Normalize, cps: []u21) void {
     var i: usize = 0;
     while (i < cps.len) : (i += 1) {
         const start: usize = i;
@@ -286,16 +287,16 @@ fn canonicalSort(self: Normalize, cps: []u21) void {
 }
 
 /// Normalize `str` to NFD.
-pub fn nfd(self: Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
+pub fn nfd(self: *const Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
     return self.nfxd(allocator, str, .nfd);
 }
 
 /// Normalize `str` to NFKD.
-pub fn nfkd(self: Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
+pub fn nfkd(self: *const Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
     return self.nfxd(allocator, str, .nfkd);
 }
 
-pub fn nfxdCodePoints(self: Normalize, allocator: Allocator, str: []const u8, form: Form) Allocator.Error![]u21 {
+pub fn nfxdCodePoints(self: *const Normalize, allocator: Allocator, str: []const u8, form: Form) Allocator.Error![]u21 {
     var dcp_list = std.ArrayList(u21).init(allocator);
     defer dcp_list.deinit();
 
@@ -316,7 +317,7 @@ pub fn nfxdCodePoints(self: Normalize, allocator: Allocator, str: []const u8, fo
     return try dcp_list.toOwnedSlice();
 }
 
-fn nfxd(self: Normalize, allocator: Allocator, str: []const u8, form: Form) Allocator.Error!Result {
+fn nfxd(self: *const Normalize, allocator: Allocator, str: []const u8, form: Form) Allocator.Error!Result {
     // Quick checks.
     if (ascii.isAsciiOnly(str)) return Result{ .slice = str };
 
@@ -380,7 +381,7 @@ test "nfkd !ASCII / alloc" {
 }
 
 pub fn nfdCodePoints(
-    self: Normalize,
+    self: *const Normalize,
     allocator: Allocator,
     cps: []const u21,
 ) Allocator.Error![]u21 {
@@ -405,7 +406,7 @@ pub fn nfdCodePoints(
 }
 
 pub fn nfkdCodePoints(
-    self: Normalize,
+    self: *const Normalize,
     allocator: Allocator,
     cps: []const u21,
 ) Allocator.Error![]u21 {
@@ -431,21 +432,21 @@ pub fn nfkdCodePoints(
 
 // Composition (NFC, NFKC)
 
-fn isHangul(self: Normalize, cp: u21) bool {
+fn isHangul(self: *const Normalize, cp: u21) bool {
     return cp >= 0x1100 and self.hangul_data.syllable(cp) != .none;
 }
 
 /// Normalizes `str` to NFC.
-pub fn nfc(self: Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
+pub fn nfc(self: *const Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
     return self.nfxc(allocator, str, .nfc);
 }
 
 /// Normalizes `str` to NFKC.
-pub fn nfkc(self: Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
+pub fn nfkc(self: *const Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
     return self.nfxc(allocator, str, .nfkc);
 }
 
-fn nfxc(self: Normalize, allocator: Allocator, str: []const u8, form: Form) Allocator.Error!Result {
+fn nfxc(self: *const Normalize, allocator: Allocator, str: []const u8, form: Form) Allocator.Error!Result {
     // Quick checks.
     if (ascii.isAsciiOnly(str)) return Result{ .slice = str };
     if (form == .nfc and isLatin1Only(str)) return Result{ .slice = str };
@@ -589,7 +590,7 @@ test "nfkc" {
 }
 
 /// Tests for equality of `a` and `b` after normalizing to NFC.
-pub fn eql(self: Normalize, allocator: Allocator, a: []const u8, b: []const u8) !bool {
+pub fn eql(self: *const Normalize, allocator: Allocator, a: []const u8, b: []const u8) !bool {
     const norm_result_a = try self.nfc(allocator, a);
     defer norm_result_a.deinit(allocator);
     const norm_result_b = try self.nfc(allocator, b);

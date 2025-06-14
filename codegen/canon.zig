@@ -27,9 +27,9 @@ pub fn main() !void {
     const endian = @import("options").target_endian;
     var line_buf: [4096]u8 = undefined;
 
-    const Item = packed struct(u16) {
-        n: u14,
-        len: u2,
+    const Item = packed struct(u32) {
+        cp: u24,
+        len: u8,
     };
 
     var cps: std.ArrayListUnmanaged(u32) = .empty;
@@ -40,8 +40,7 @@ pub fn main() !void {
 
     try map.ensureTotalCapacity(allocator, 10_000);
     try cps.ensureTotalCapacity(allocator, 10_000);
-    try nfd.ensureTotalCapacity(allocator, 0x100000);
-    @memset(nfd.allocatedSlice(), .{ .n = 0, .len = 0 });
+    try nfd.ensureTotalCapacity(allocator, 10_000);
 
     lines: while (try in_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
         if (line.len == 0) continue;
@@ -77,58 +76,19 @@ pub fn main() !void {
             }
         }
 
-        nfd.items.len = cp + 1;
-        std.debug.assert(nfd.items.len <= nfd.capacity);
         const len: u2 = if (singleton) 1 else 2;
-        nfd.items[cp] = .{
-            .n = @intCast(cps.items.len),
+        try nfd.append(allocator, .{
+            .cp = cp,
             .len = len,
-        };
+        });
         cps.appendSliceAssumeCapacity(@ptrCast(buf[0..len]));
     }
 
-    const map_slice = hashmapAllocatedSlice([2]u21, u21, &map);
     const writer = out_comp.writer();
     try writer.writeInt(u32, @intCast(nfd.items.len), endian);
     try writer.writeInt(u32, @intCast(cps.items.len), endian);
-    try writer.writeInt(u32, @intCast(map_slice.len), endian);
-    try writer.writeInt(u32, map.size, endian);
-    try writer.writeInt(u32, map.available, endian);
+    try writer.writeInt(u32, map.capacity(), endian);
+    for (nfd.items) |i| try writer.writeStructEndian(i, endian);
     for (cps.items) |i| try writer.writeInt(u32, i, endian);
-    for (nfd.items) |i| try writer.writeInt(u16, @bitCast(i), endian);
-    try writer.writeAll(map_slice);
     try out_comp.flush();
-}
-
-fn hashmapAllocatedSlice(K: type, V: type, self: *const std.AutoHashMapUnmanaged(K, V)) []const u8 {
-    if (self.metadata == null) unreachable;
-
-    const Header = struct {
-        values: [*]V,
-        keys: [*]K,
-        capacity: std.AutoHashMapUnmanaged(K, V).Size,
-    };
-
-    const Metadata = u8;
-
-    const header_align = @alignOf(Header);
-    const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
-    const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
-    const max_align = comptime @max(header_align, key_align, val_align);
-
-    const cap: usize = self.capacity();
-    const meta_size = @sizeOf(Header) + cap * @sizeOf(Metadata);
-    comptime std.debug.assert(@alignOf(Metadata) == 1);
-
-    const keys_start = std.mem.alignForward(usize, meta_size, key_align);
-    const keys_end = keys_start + cap * @sizeOf(K);
-
-    const vals_start = std.mem.alignForward(usize, keys_end, val_align);
-    const vals_end = vals_start + cap * @sizeOf(V);
-
-    const total_size = std.mem.alignForward(usize, vals_end, max_align);
-
-    const ptr: [*]Header = @ptrCast(@alignCast(self.metadata.?));
-    const slice = @as([*]align(max_align) u8, @alignCast(@ptrCast(ptr - 1)))[0..total_size];
-    return slice;
 }

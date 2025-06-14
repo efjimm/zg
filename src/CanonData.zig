@@ -4,13 +4,13 @@ const builtin = @import("builtin");
 const magic = @import("magic");
 const options = @import("options");
 
-const Item = packed struct(u16) {
+const Slice = packed struct(u16) {
     offset: u14,
     len: u2,
 };
 
 nfc: std.AutoHashMapUnmanaged([2]u21, u21),
-nfd: []const Item,
+nfd: []const Slice,
 cps: []const u21,
 
 const CanonData = @This();
@@ -24,30 +24,44 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!CanonData {
     const Header = extern struct {
         nfd_len: u32,
         cps_len: u32,
-        map_slice_len: u32,
         map_size: u32,
-        map_available: u32,
+    };
+
+    const Nfd = packed struct(u32) {
+        cp: u24,
+        len: u8,
     };
 
     const header = reader.readStruct(Header) catch unreachable;
-    const total_size = header.nfd_len * 2 + header.cps_len * 4 + header.map_slice_len;
-    const bytes = try allocator.alignedAlloc(u8, .of(u64), total_size);
-    const bytes_read = reader.readAll(bytes) catch unreachable;
-    std.debug.assert(bytes_read == total_size);
+    const idk_size = @sizeOf(Nfd) * @as(usize, header.nfd_len);
+    const cps_size = @sizeOf(u21) * @as(usize, header.cps_len);
+    const nfd_cps = try allocator.alloc(Nfd, header.nfd_len);
+    defer allocator.free(nfd_cps);
 
-    const cps: []const u21 = @ptrCast(bytes[0 .. header.cps_len * 4]);
-    const nfd: []const Item = @ptrCast(@alignCast(bytes[header.cps_len * 4 ..][0 .. header.nfd_len * 2]));
-    const map_slice = bytes[header.nfd_len * 2 + header.cps_len * 4 ..][0..header.map_slice_len];
+    var bytes_read = reader.readAll(std.mem.sliceAsBytes(nfd_cps)) catch unreachable;
+    std.debug.assert(bytes_read == idk_size);
+    const max_cp = nfd_cps[nfd_cps.len - 1].cp;
+
+    const map_cap = header.map_size;
+    const nfd_size = (max_cp + 1) * @sizeOf(Slice);
+    const total_size = nfd_size + cps_size + hashMapAllocSize([2]u21, u21, map_cap);
+    const bytes = try allocator.alignedAlloc(u8, .of(u64), total_size);
+    errdefer allocator.free(bytes);
+    bytes_read = reader.readAll(bytes[0..cps_size]) catch unreachable;
+    std.debug.assert(bytes_read == cps_size);
+
+    const cps: []const u21 = @ptrCast(bytes[0..cps_size]);
+    const nfd: []Slice = @ptrCast(@alignCast(bytes[cps_size..][0..nfd_size]));
+    const map_slice = bytes[cps_size + nfd_size ..];
+    @memset(map_slice, 0);
 
     const MapHeader = HashMapHeader([2]u21, u21);
-    var map: @FieldType(CanonData, "nfc") = .{
+    var map: std.AutoHashMapUnmanaged([2]u21, u21) = .{
         .metadata = @ptrCast(@alignCast(map_slice.ptr + @sizeOf(MapHeader))),
-        .size = header.map_size,
-        .available = header.map_available,
+        .size = 0,
+        .available = map_cap,
         .pointer_stability = .{},
     };
-
-    const map_cap = map.capacity();
     const keys_start = std.mem.alignForward(
         usize,
         @sizeOf(MapHeader) + map_cap,
@@ -60,8 +74,23 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!CanonData {
     );
 
     const map_header: *MapHeader = @ptrCast(@alignCast(map_slice.ptr));
-    map_header.values = @ptrCast(@alignCast(map_slice.ptr + vals_start));
-    map_header.keys = @ptrCast(@alignCast(map_slice.ptr + keys_start));
+    map_header.* = .{
+        .values = @ptrCast(@alignCast(map_slice.ptr + vals_start)),
+        .keys = @ptrCast(@alignCast(map_slice.ptr + keys_start)),
+        .capacity = map_cap,
+    };
+    std.debug.assert(map.capacity() == map_cap);
+
+    @memset(nfd, .{ .offset = 0, .len = 0 });
+
+    var offset: u14 = 0;
+    for (nfd_cps) |n| {
+        nfd[n.cp] = .{ .offset = offset, .len = @intCast(n.len) };
+        if (n.len == 2) {
+            map.putAssumeCapacity(cps[offset..][0..2].*, @intCast(n.cp));
+        }
+        offset += n.len;
+    }
 
     return .{
         .nfd = nfd,
@@ -71,8 +100,11 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!CanonData {
 }
 
 pub fn deinit(cdata: *const CanonData, allocator: std.mem.Allocator) void {
-    const map_size = hashMapAllocSize([2]u21, u21, &cdata.nfc);
-    const total_size = cdata.nfd.len * 2 + cdata.cps.len * 4 + map_size;
+    const total_size =
+        cdata.nfd.len * @sizeOf(Slice) +
+        cdata.cps.len * @sizeOf(u21) +
+        hashMapAllocSize([2]u21, u21, cdata.nfc.capacity());
+
     const ptr: [*]const u8 = @ptrCast(cdata.cps.ptr);
     const slice = ptr[0..total_size];
     allocator.free(slice);
@@ -97,9 +129,7 @@ fn HashMapHeader(K: type, V: type) type {
     };
 }
 
-fn hashMapAllocSize(K: type, V: type, self: *const std.AutoHashMapUnmanaged(K, V)) usize {
-    if (self.metadata == null) unreachable;
-
+fn hashMapAllocSize(K: type, V: type, cap: u32) usize {
     const Header = HashMapHeader(K, V);
     const Metadata = u8;
 
@@ -108,7 +138,6 @@ fn hashMapAllocSize(K: type, V: type, self: *const std.AutoHashMapUnmanaged(K, V
     const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
     const max_align = comptime @max(header_align, key_align, val_align);
 
-    const cap: usize = self.capacity();
     const meta_size = @sizeOf(Header) + cap * @sizeOf(Metadata);
     comptime std.debug.assert(@alignOf(Metadata) == 1);
 

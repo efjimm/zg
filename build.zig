@@ -45,6 +45,15 @@ pub fn build(b: *std.Build) !void {
 
     options.addOptionPath("unicode_data_path", b.path("data/unicode"));
 
+    const print_sizes = b.addExecutable(.{
+        .name = "print-sizes",
+        .root_source_file = b.path("src/sizes.zig"),
+        .optimize = optimize,
+        .target = target,
+    });
+    const run_print_sizes = b.addRunArtifact(print_sizes);
+    b.step("sizes", "").dependOn(&run_print_sizes.step);
+
     const root_module = b.addModule("zg", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -65,6 +74,7 @@ pub fn build(b: *std.Build) !void {
         const run_gen_exe = b.addRunArtifact(gen_exe);
         const output = run_gen_exe.addOutputFileArg(name ++ ".bin.z");
         root_module.addAnonymousImport(name, .{ .root_source_file = output });
+        print_sizes.root_module.addAnonymousImport(name, .{ .root_source_file = output });
     }
     root_module.addOptions("options", options);
 
