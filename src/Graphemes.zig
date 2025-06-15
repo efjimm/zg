@@ -244,6 +244,8 @@ fn isBreaker(cp: u21, data: *const Graphemes) bool {
 pub const State = struct {
     bits: u3 = 0,
 
+    pub const reset: State = .{ .bits = 0 };
+
     // Extended Pictographic (emoji)
     fn hasXpic(self: State) bool {
         return self.bits & 1 == 1;

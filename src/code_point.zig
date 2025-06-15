@@ -15,21 +15,9 @@ pub const CodePoint = struct {
     offset: usize,
 };
 
-/// This function is deprecated and will be removed in a later release.
-/// Use `decodeAtIndex` or `decodeAtCursor`.
-pub fn decode(bytes: []const u8, offset: usize) ?CodePoint {
-    var off: usize = 0;
-    var maybe_code = decodeAtCursor(bytes, &off);
-    if (maybe_code) |*code| {
-        code.offset = offset;
-        return code.*;
-    }
-    return null;
-}
-
 /// Decode the CodePoint, if any, at `bytes[idx]`.
-pub fn decodeAtIndex(bytes: []const u8, idx: usize) ?CodePoint {
-    var off = idx;
+pub fn decode(bytes: []const u8) ?CodePoint {
+    var off: usize = 0;
     return decodeAtCursor(bytes, &off);
 }
 
@@ -238,7 +226,7 @@ const class_mask: [12]u8 = .{
 
 test "decode" {
     const bytes = "🌩️";
-    const res = decode(bytes, 0);
+    const res = decode(bytes);
 
     if (res) |cp| {
         try std.testing.expectEqual(@as(u21, 0x1F329), cp.code);
