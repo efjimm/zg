@@ -22,6 +22,16 @@ normp_data: NormPropsData,
 
 const Normalize = @This();
 
+pub const uninitialized: Normalize = blk: {
+    var n: Normalize = undefined;
+    n.ccc_data.s1 = &.{};
+    break :blk n;
+};
+
+pub fn isInitialized(n: *const Normalize) bool {
+    return n.ccc_data.s1.len != 0;
+}
+
 pub fn init(allocator: Allocator) Allocator.Error!Normalize {
     const canon_data: CanonData = try .init(allocator);
     errdefer canon_data.deinit(allocator);
@@ -48,6 +58,7 @@ pub fn init(allocator: Allocator) Allocator.Error!Normalize {
 }
 
 pub fn deinit(norm: *const Normalize, allocator: Allocator) void {
+    assert(norm.isInitialized());
     norm.canon_data.deinit(allocator);
     norm.ccc_data.deinit(allocator);
     norm.compat_data.deinit(allocator);
@@ -288,15 +299,18 @@ fn canonicalSort(self: *const Normalize, cps: []u21) void {
 
 /// Normalize `str` to NFD.
 pub fn nfd(self: *const Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
+    assert(self.isInitialized());
     return self.nfxd(allocator, str, .nfd);
 }
 
 /// Normalize `str` to NFKD.
 pub fn nfkd(self: *const Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
+    assert(self.isInitialized());
     return self.nfxd(allocator, str, .nfkd);
 }
 
 pub fn nfxdCodePoints(self: *const Normalize, allocator: Allocator, str: []const u8, form: Form) Allocator.Error![]u21 {
+    assert(self.isInitialized());
     var dcp_list = std.ArrayList(u21).init(allocator);
     defer dcp_list.deinit();
 
@@ -385,6 +399,7 @@ pub fn nfdCodePoints(
     allocator: Allocator,
     cps: []const u21,
 ) Allocator.Error![]u21 {
+    assert(self.isInitialized());
     var dcp_list = std.ArrayList(u21).init(allocator);
     defer dcp_list.deinit();
 
@@ -410,6 +425,7 @@ pub fn nfkdCodePoints(
     allocator: Allocator,
     cps: []const u21,
 ) Allocator.Error![]u21 {
+    assert(self.isInitialized());
     var dcp_list = std.ArrayList(u21).init(allocator);
     defer dcp_list.deinit();
 
@@ -438,11 +454,13 @@ fn isHangul(self: *const Normalize, cp: u21) bool {
 
 /// Normalizes `str` to NFC.
 pub fn nfc(self: *const Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
+    assert(self.isInitialized());
     return self.nfxc(allocator, str, .nfc);
 }
 
 /// Normalizes `str` to NFKC.
 pub fn nfkc(self: *const Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
+    assert(self.isInitialized());
     return self.nfxc(allocator, str, .nfkc);
 }
 
@@ -591,6 +609,7 @@ test "nfkc" {
 
 /// Tests for equality of `a` and `b` after normalizing to NFC.
 pub fn eql(self: *const Normalize, allocator: Allocator, a: []const u8, b: []const u8) !bool {
+    assert(self.isInitialized());
     const norm_result_a = try self.nfc(allocator, a);
     defer norm_result_a.deinit(allocator);
     const norm_result_b = try self.nfc(allocator, b);

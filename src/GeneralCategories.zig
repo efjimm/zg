@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 
 s1: []const u16,
@@ -41,6 +42,16 @@ pub const Gc = enum {
 
 const GeneralCategories = @This();
 
+pub const uninitialized: GeneralCategories = blk: {
+    var g: GeneralCategories = undefined;
+    g.s1 = &.{};
+    break :blk g;
+};
+
+pub fn isInitialized(g: *const GeneralCategories) bool {
+    return g.s1.len != 0;
+}
+
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!GeneralCategories {
     const in_bytes = @embedFile("gencat");
     var in_fbs = std.io.fixedBufferStream(in_bytes);
@@ -71,6 +82,7 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!GeneralCategor
 }
 
 pub fn deinit(gencat: *const GeneralCategories, allocator: std.mem.Allocator) void {
+    assert(gencat.isInitialized());
     const total_size = gencat.s1.len * 2 + gencat.s2.len + gencat.s3.len;
     const ptr: [*]const u8 = @ptrCast(gencat.s1.ptr);
     const slice = ptr[0..total_size];
@@ -79,11 +91,13 @@ pub fn deinit(gencat: *const GeneralCategories, allocator: std.mem.Allocator) vo
 
 /// Lookup the General Category for `cp`.
 pub fn gc(gencat: *const GeneralCategories, cp: u21) Gc {
+    assert(gencat.isInitialized());
     return @enumFromInt(gencat.s3[gencat.s2[gencat.s1[cp >> 8] + (cp & 0xff)]]);
 }
 
 /// True if `cp` has an C general category.
 pub fn isControl(gencat: *const GeneralCategories, cp: u21) bool {
+    assert(gencat.isInitialized());
     return switch (gencat.gc(cp)) {
         .Cc,
         .Cf,
@@ -97,6 +111,7 @@ pub fn isControl(gencat: *const GeneralCategories, cp: u21) bool {
 
 /// True if `cp` has an L general category.
 pub fn isLetter(gencat: *const GeneralCategories, cp: u21) bool {
+    assert(gencat.isInitialized());
     return switch (gencat.gc(cp)) {
         .Ll,
         .Lm,
@@ -110,6 +125,7 @@ pub fn isLetter(gencat: *const GeneralCategories, cp: u21) bool {
 
 /// True if `cp` has an M general category.
 pub fn isMark(gencat: *const GeneralCategories, cp: u21) bool {
+    assert(gencat.isInitialized());
     return switch (gencat.gc(cp)) {
         .Mc,
         .Me,
@@ -121,6 +137,7 @@ pub fn isMark(gencat: *const GeneralCategories, cp: u21) bool {
 
 /// True if `cp` has an N general category.
 pub fn isNumber(gencat: *const GeneralCategories, cp: u21) bool {
+    assert(gencat.isInitialized());
     return switch (gencat.gc(cp)) {
         .Nd,
         .Nl,
@@ -132,6 +149,7 @@ pub fn isNumber(gencat: *const GeneralCategories, cp: u21) bool {
 
 /// True if `cp` has an P general category.
 pub fn isPunctuation(gencat: *const GeneralCategories, cp: u21) bool {
+    assert(gencat.isInitialized());
     return switch (gencat.gc(cp)) {
         .Pc,
         .Pd,
@@ -147,6 +165,7 @@ pub fn isPunctuation(gencat: *const GeneralCategories, cp: u21) bool {
 
 /// True if `cp` has an S general category.
 pub fn isSymbol(gencat: *const GeneralCategories, cp: u21) bool {
+    assert(gencat.isInitialized());
     return switch (gencat.gc(cp)) {
         .Sc,
         .Sk,
@@ -159,6 +178,7 @@ pub fn isSymbol(gencat: *const GeneralCategories, cp: u21) bool {
 
 /// True if `cp` has an Z general category.
 pub fn isSeparator(gencat: *const GeneralCategories, cp: u21) bool {
+    assert(gencat.isInitialized());
     return switch (gencat.gc(cp)) {
         .Zl,
         .Zp,

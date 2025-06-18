@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const testing = std.testing;
 const builtin = @import("builtin");
 
@@ -9,6 +10,16 @@ prop_s1: []u16,
 prop_s2: []u8,
 
 const LetterCasing = @This();
+
+pub const uninitialized: LetterCasing = .{
+    .case_map = &.{},
+    .prop_s1 = &.{},
+    .prop_s2 = &.{},
+};
+
+pub fn isInitialized(lc: *const LetterCasing) bool {
+    return lc.prop_s1.len != 0;
+}
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!LetterCasing {
     const decompressor = std.compress.flate.inflate.decompressor;
@@ -68,6 +79,7 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!LetterCasing {
 }
 
 pub fn deinit(self: *const LetterCasing, allocator: std.mem.Allocator) void {
+    assert(self.isInitialized());
     const ptr: [*]align(@alignOf([2]u21)) const u8 = @ptrCast(self.case_map.ptr);
     const total_size =
         std.mem.sliceAsBytes(self.case_map).len +
@@ -79,16 +91,19 @@ pub fn deinit(self: *const LetterCasing, allocator: std.mem.Allocator) void {
 
 // Returns true if `cp` is either upper, lower, or title case.
 pub fn isCased(self: *const LetterCasing, cp: u21) bool {
+    assert(self.isInitialized());
     return self.prop_s2[self.prop_s1[cp >> 8] + (cp & 0xff)] & 4 == 4;
 }
 
 // Returns true if `cp` is uppercase.
 pub fn isUpper(self: *const LetterCasing, cp: u21) bool {
+    assert(self.isInitialized());
     return self.prop_s2[self.prop_s1[cp >> 8] + (cp & 0xff)] & 2 == 2;
 }
 
 /// Returns true if `str` is all uppercase.
 pub fn isUpperStr(self: *const LetterCasing, str: []const u8) bool {
+    assert(self.isInitialized());
     var iter = CodePointIterator{ .bytes = str };
 
     while (iter.next()) |cp| {
@@ -110,6 +125,7 @@ test "isUpperStr" {
 
 /// Returns uppercase mapping for `cp`.
 pub fn toUpper(self: *const LetterCasing, cp: u21) u21 {
+    assert(self.isInitialized());
     return if (cp >= self.case_map.len) cp else self.case_map[cp][0];
 }
 
@@ -120,6 +136,7 @@ pub fn toUpperStr(
     allocator: std.mem.Allocator,
     str: []const u8,
 ) ![]u8 {
+    assert(self.isInitialized());
     var bytes = std.ArrayList(u8).init(allocator);
     defer bytes.deinit();
 
@@ -145,11 +162,13 @@ test "toUpperStr" {
 
 // Returns true if `cp` is lowercase.
 pub fn isLower(self: *const LetterCasing, cp: u21) bool {
+    assert(self.isInitialized());
     return self.prop_s2[self.prop_s1[cp >> 8] + (cp & 0xff)] & 1 == 1;
 }
 
 /// Returns true if `str` is all lowercase.
 pub fn isLowerStr(self: *const LetterCasing, str: []const u8) bool {
+    assert(self.isInitialized());
     var iter = CodePointIterator{ .bytes = str };
 
     while (iter.next()) |cp| {
@@ -171,6 +190,7 @@ test "isLowerStr" {
 
 /// Returns lowercase mapping for `cp`.
 pub fn toLower(self: *const LetterCasing, cp: u21) u21 {
+    assert(self.isInitialized());
     return if (cp >= self.case_map.len) cp else self.case_map[cp][1];
 }
 
@@ -182,6 +202,7 @@ pub fn toLowerStr(
     allocator: std.mem.Allocator,
     str: []const u8,
 ) ![]u8 {
+    assert(self.isInitialized());
     var bytes = std.ArrayList(u8).init(allocator);
     defer bytes.deinit();
 

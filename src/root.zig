@@ -12,14 +12,14 @@ pub const Properties = @import("Properties.zig");
 pub const Scripts = @import("Scripts.zig");
 
 var refs: std.EnumArray(UnicodeData, u32) = .initFill(0);
-pub var case_folding: CaseFolding = undefined;
-pub var display_width: DisplayWidth = undefined;
-pub var general_categories: GeneralCategories = undefined;
-pub var graphemes: Graphemes = undefined;
-pub var letter_casing: LetterCasing = undefined;
-pub var normalize: Normalize = undefined;
-pub var properties: Properties = undefined;
-pub var scripts: Scripts = undefined;
+pub var case_folding: CaseFolding = .uninitialized;
+pub var display_width: DisplayWidth = .uninitialized;
+pub var general_categories: GeneralCategories = .uninitialized;
+pub var graphemes: Graphemes = .uninitialized;
+pub var letter_casing: LetterCasing = .uninitialized;
+pub var normalize: Normalize = .uninitialized;
+pub var properties: Properties = .uninitialized;
+pub var scripts: Scripts = .uninitialized;
 
 pub const UnicodeData = enum {
     case_folding,

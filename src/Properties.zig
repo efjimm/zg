@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const builtin = @import("builtin");
@@ -11,6 +12,16 @@ num_s1: []u16,
 num_s2: []u8,
 
 const Properties = @This();
+
+pub const uninitialized: Properties = blk: {
+    var p: Properties = undefined;
+    p.core_s1 = &.{};
+    break :blk p;
+};
+
+pub fn isInitialized(p: *const Properties) bool {
+    return p.core_s1.len != 0;
+}
 
 pub fn init(allocator: Allocator) Allocator.Error!Properties {
     const decompressor = std.compress.flate.inflate.decompressor;
@@ -69,6 +80,7 @@ pub fn init(allocator: Allocator) Allocator.Error!Properties {
 }
 
 pub fn deinit(self: *const Properties, allocator: Allocator) void {
+    assert(self.isInitialized());
     const total_size =
         std.mem.alignForward(usize, self.core_s1.len * 2 + self.core_s2.len, 2) +
         std.mem.alignForward(usize, self.props_s1.len * 2 + self.props_s2.len, 2) +
@@ -79,61 +91,73 @@ pub fn deinit(self: *const Properties, allocator: Allocator) void {
 
 /// True if `cp` is a mathematical symbol.
 pub fn isMath(self: *const Properties, cp: u21) bool {
+    assert(self.isInitialized());
     return self.core_s2[self.core_s1[cp >> 8] + (cp & 0xff)] & 1 == 1;
 }
 
 /// True if `cp` is an alphabetic character.
 pub fn isAlphabetic(self: *const Properties, cp: u21) bool {
+    assert(self.isInitialized());
     return self.core_s2[self.core_s1[cp >> 8] + (cp & 0xff)] & 2 == 2;
 }
 
 /// True if `cp` is a valid identifier start character.
 pub fn isIdStart(self: *const Properties, cp: u21) bool {
+    assert(self.isInitialized());
     return self.core_s2[self.core_s1[cp >> 8] + (cp & 0xff)] & 4 == 4;
 }
 
 /// True if `cp` is a valid identifier continuation character.
 pub fn isIdContinue(self: *const Properties, cp: u21) bool {
+    assert(self.isInitialized());
     return self.core_s2[self.core_s1[cp >> 8] + (cp & 0xff)] & 8 == 8;
 }
 
 /// True if `cp` is a valid extended identifier start character.
 pub fn isXidStart(self: *const Properties, cp: u21) bool {
+    assert(self.isInitialized());
     return self.core_s2[self.core_s1[cp >> 8] + (cp & 0xff)] & 16 == 16;
 }
 
 /// True if `cp` is a valid extended identifier continuation character.
 pub fn isXidContinue(self: *const Properties, cp: u21) bool {
+    assert(self.isInitialized());
     return self.core_s2[self.core_s1[cp >> 8] + (cp & 0xff)] & 32 == 32;
 }
 
 /// True if `cp` is a whitespace character.
 pub fn isWhitespace(self: *const Properties, cp: u21) bool {
+    assert(self.isInitialized());
     return self.props_s2[self.props_s1[cp >> 8] + (cp & 0xff)] & 1 == 1;
 }
 
 /// True if `cp` is a hexadecimal digit.
 pub fn isHexDigit(self: *const Properties, cp: u21) bool {
+    assert(self.isInitialized());
     return self.props_s2[self.props_s1[cp >> 8] + (cp & 0xff)] & 2 == 2;
 }
 
 /// True if `cp` is a diacritic mark.
 pub fn isDiacritic(self: *const Properties, cp: u21) bool {
+    assert(self.isInitialized());
     return self.props_s2[self.props_s1[cp >> 8] + (cp & 0xff)] & 4 == 4;
 }
 
 /// True if `cp` is numeric.
 pub fn isNumeric(self: *const Properties, cp: u21) bool {
+    assert(self.isInitialized());
     return self.num_s2[self.num_s1[cp >> 8] + (cp & 0xff)] & 1 == 1;
 }
 
 /// True if `cp` is a digit.
 pub fn isDigit(self: *const Properties, cp: u21) bool {
+    assert(self.isInitialized());
     return self.num_s2[self.num_s1[cp >> 8] + (cp & 0xff)] & 2 == 2;
 }
 
 /// True if `cp` is decimal.
 pub fn isDecimal(self: *const Properties, cp: u21) bool {
+    assert(self.isInitialized());
     return self.num_s2[self.num_s1[cp >> 8] + (cp & 0xff)] & 4 == 4;
 }
 

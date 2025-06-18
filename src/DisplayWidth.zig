@@ -1,5 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 
 const options = @import("options");
@@ -14,6 +15,16 @@ s2: []const i4,
 owns_graphemes: bool,
 
 const DisplayWidth = @This();
+
+pub const uninitialized: DisplayWidth = blk: {
+    var dw: DisplayWidth = undefined;
+    dw.s1 = &.{};
+    break :blk dw;
+};
+
+pub fn isInitialized(dw: *const DisplayWidth) bool {
+    return dw.s1.len != 0;
+}
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!DisplayWidth {
     const graphemes: Graphemes = try .init(allocator);
@@ -53,6 +64,7 @@ pub fn initWithGraphemes(
 }
 
 pub fn deinit(dw: *const DisplayWidth, allocator: std.mem.Allocator) void {
+    assert(dw.isInitialized());
     const ptr: [*]const u8 = @ptrCast(dw.s1.ptr);
     const bytes = ptr[0 .. dw.s1.len * 2 + dw.s2.len];
     allocator.free(bytes);
@@ -65,6 +77,7 @@ pub fn deinit(dw: *const DisplayWidth, allocator: std.mem.Allocator) void {
 /// control codes return 0. If `cjk` is true, ambiguous code points return 2,
 /// otherwise they return 1.
 pub fn codePointWidth(dw: *const DisplayWidth, cp: u21) i4 {
+    assert(dw.isInitialized());
     return dw.s2[dw.s1[cp >> 8] + (cp & 0xff)];
 }
 
@@ -100,6 +113,7 @@ test "codePointWidth" {
 /// strWidth returns the total display width of `str` as the number of cells
 /// required in a fixed-pitch font (i.e. a terminal screen).
 pub fn strWidth(dw: *const DisplayWidth, str: []const u8) usize {
+    assert(dw.isInitialized());
     var total: isize = 0;
 
     // ASCII fast path
@@ -211,6 +225,7 @@ pub fn center(
     total_width: usize,
     pad: []const u8,
 ) ![]u8 {
+    assert(dw.isInitialized());
     const str_width = dw.strWidth(str);
     if (str_width > total_width) return error.StrTooLong;
     if (str_width == total_width) return try allocator.dupe(u8, str);
@@ -297,6 +312,7 @@ pub fn padLeft(
     total_width: usize,
     pad: []const u8,
 ) ![]u8 {
+    assert(dw.isInitialized());
     const str_width = dw.strWidth(str);
     if (str_width > total_width) return error.StrTooLong;
 
@@ -345,6 +361,7 @@ pub fn padRight(
     total_width: usize,
     pad: []const u8,
 ) ![]u8 {
+    assert(dw.isInitialized());
     const str_width = dw.strWidth(str);
     if (str_width > total_width) return error.StrTooLong;
 
@@ -395,6 +412,7 @@ pub fn wrap(
     columns: usize,
     threshold: usize,
 ) ![]u8 {
+    assert(dw.isInitialized());
     var result = std.ArrayList(u8).init(allocator);
     defer result.deinit();
 

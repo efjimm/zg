@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 
 const CodePoint = @import("code_point.zig").CodePoint;
@@ -9,6 +10,16 @@ s2: []const u16,
 s3: []const u8,
 
 const Graphemes = @This();
+
+pub const uninitialized: Graphemes = blk: {
+    var g: Graphemes = undefined;
+    g.s1 = &.{};
+    break :blk g;
+};
+
+pub fn isInitialized(g: *const Graphemes) bool {
+    return g.s1.len != 0;
+}
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Graphemes {
     const decompressor = std.compress.flate.inflate.decompressor;
@@ -40,6 +51,7 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Graphemes {
 }
 
 pub fn deinit(g: *const Graphemes, allocator: std.mem.Allocator) void {
+    assert(g.isInitialized());
     const total_size = g.s1.len * 2 + g.s2.len * 2 + g.s3.len;
     const ptr: [*]const u8 = @ptrCast(g.s1.ptr);
     allocator.free(ptr[0..total_size]);
@@ -47,20 +59,24 @@ pub fn deinit(g: *const Graphemes, allocator: std.mem.Allocator) void {
 
 /// Lookup the grapheme break property for a code point.
 pub fn gbp(graphemes: *const Graphemes, cp: u21) Gbp {
+    assert(graphemes.isInitialized());
     return @enumFromInt(graphemes.s3[graphemes.s2[graphemes.s1[cp >> 8] + (cp & 0xff)]] >> 4);
 }
 
 /// Lookup the indic syllable type for a code point.
 pub fn indic(graphemes: *const Graphemes, cp: u21) Indic {
+    assert(graphemes.isInitialized());
     return @enumFromInt((graphemes.s3[graphemes.s2[graphemes.s1[cp >> 8] + (cp & 0xff)]] >> 1) & 0x7);
 }
 
 /// Lookup the emoji property for a code point.
 pub fn isEmoji(graphemes: *const Graphemes, cp: u21) bool {
+    assert(graphemes.isInitialized());
     return graphemes.s3[graphemes.s2[graphemes.s1[cp >> 8] + (cp & 0xff)]] & 1 == 1;
 }
 
 pub fn iterator(graphemes: *const Graphemes, string: []const u8) Iterator {
+    assert(graphemes.isInitialized());
     return Iterator.init(string, graphemes);
 }
 
@@ -113,6 +129,7 @@ pub const Iterator = struct {
 
     /// Assumes `src` is valid UTF-8.
     pub fn init(str: []const u8, data: *const Graphemes) Self {
+        assert(data.isInitialized());
         var self = Self{ .cp_iter = .{ .bytes = str }, .data = data };
         self.advance();
         return self;
@@ -124,6 +141,7 @@ pub const Iterator = struct {
     }
 
     pub fn next(self: *Self) ?Grapheme {
+        assert(self.data.isInitialized());
         self.advance();
 
         // If no more
@@ -162,6 +180,7 @@ pub const Iterator = struct {
     }
 
     pub fn peek(self: *Self) ?Grapheme {
+        assert(self.data.isInitialized());
         const saved_cp_iter = self.cp_iter;
         const s0 = self.buf[0];
         const s1 = self.buf[1];
@@ -288,6 +307,7 @@ pub fn isBreak(
     cp2: u21,
     state: *State,
 ) bool {
+    assert(data.isInitialized());
     // Extract relevant properties.
     const cp1_gbp_prop = data.gbp(cp1);
     const cp1_indic_prop = data.indic(cp1);

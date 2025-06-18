@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 
 data: [*]const u8,
 s1_size: u32,
@@ -6,6 +7,16 @@ s2_size: u16,
 s3_size: u16,
 
 const Scripts = @This();
+
+pub const uninitialized: Scripts = blk: {
+    var s: Scripts = undefined;
+    s.s1_size = 0;
+    break :blk s;
+};
+
+pub fn isInitialized(s: *const Scripts) bool {
+    return s.s1_size != 0;
+}
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Scripts {
     const in_bytes = @embedFile("scripts");
@@ -34,13 +45,15 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Scripts {
     };
 }
 
-pub fn deinit(self: *const Scripts, allocator: std.mem.Allocator) void {
+pub fn deinit(self: Scripts, allocator: std.mem.Allocator) void {
+    assert(self.isInitialized());
     const len = self.s1_size + self.s2_size + self.s3_size;
     allocator.free(self.data[0..len]);
 }
 
 /// Lookup the Script type for `cp`.
 pub fn script(self: Scripts, cp: u21) ?Script {
+    assert(self.isInitialized());
     const s1: []const u16 = @alignCast(@ptrCast(self.data[0..self.s1_size]));
     const s2 = self.data[self.s1_size..][0..self.s2_size];
     const s3 = self.data[self.s1_size + self.s2_size ..][0..self.s3_size];

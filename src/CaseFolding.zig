@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 
 const ascii = @import("ascii.zig");
 const Normalize = @import("Normalize.zig");
@@ -16,6 +17,16 @@ normalize: Normalize,
 owns_normalize: bool,
 
 const CaseFolding = @This();
+
+pub const uninitialized: CaseFolding = blk: {
+    var c: CaseFolding = undefined;
+    c.s1 = &.{};
+    break :blk c;
+};
+
+pub fn isInitialized(c: *const CaseFolding) bool {
+    return c.s1.len != 0;
+}
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!CaseFolding {
     const normalize: Normalize = try .init(allocator);
@@ -80,6 +91,7 @@ pub fn initWithNormalize(
 }
 
 pub fn deinit(fdata: *const CaseFolding, allocator: std.mem.Allocator) void {
+    assert(fdata.isInitialized());
     const total_size = fdata.s1.len + fdata.s2.len + fdata.s3.len * 4 + fdata.cwcf_exceptions.len * 4;
     const slice: []align(4) const u8 = @alignCast(fdata.s1.ptr[0..total_size]);
     allocator.free(slice);
@@ -88,6 +100,7 @@ pub fn deinit(fdata: *const CaseFolding, allocator: std.mem.Allocator) void {
 
 /// Returns the case fold for `cp`.
 pub fn caseFold(fdata: *const CaseFolding, cp: u21, buf: []u21) []const u21 {
+    assert(fdata.isInitialized());
     if (cp >= fdata.cutoff) return &.{};
 
     const stage1_val = fdata.s1[cp >> 8];
@@ -119,6 +132,7 @@ pub fn caseFoldAlloc(
     allocator: std.mem.Allocator,
     cps: []const u21,
 ) std.mem.Allocator.Error![]const u21 {
+    assert(casefold.isInitialized());
     var cfcps = std.ArrayList(u21).init(allocator);
     defer cfcps.deinit();
     var buf: [3]u21 = undefined;
@@ -138,12 +152,14 @@ pub fn caseFoldAlloc(
 
 /// Returns true when caseFold(NFD(`cp`)) != NFD(`cp`).
 pub fn cpChangesWhenCaseFolded(casefold: *const CaseFolding, cp: u21) bool {
+    assert(casefold.isInitialized());
     var buf: [3]u21 = undefined;
     const has_mapping = casefold.caseFold(cp, &buf).len != 0;
     return has_mapping and !casefold.isCwcfException(cp);
 }
 
 pub fn changesWhenCaseFolded(casefold: *const CaseFolding, cps: []const u21) bool {
+    assert(casefold.isInitialized());
     return for (cps) |cp| {
         if (casefold.cpChangesWhenCaseFolded(cp)) break true;
     } else false;
@@ -163,6 +179,7 @@ pub fn compatCaselessMatch(
     a: []const u8,
     b: []const u8,
 ) std.mem.Allocator.Error!bool {
+    assert(casefold.isInitialized());
     if (ascii.isAsciiOnly(a) and ascii.isAsciiOnly(b)) return std.ascii.eqlIgnoreCase(a, b);
 
     // Process a
@@ -230,6 +247,7 @@ pub fn canonCaselessMatch(
     a: []const u8,
     b: []const u8,
 ) std.mem.Allocator.Error!bool {
+    assert(casefold.isInitialized());
     if (ascii.isAsciiOnly(a) and ascii.isAsciiOnly(b)) return std.ascii.eqlIgnoreCase(a, b);
 
     // Process a
