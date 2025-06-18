@@ -12,7 +12,7 @@ num_s2: []u8,
 
 const Properties = @This();
 
-fn init(allocator: Allocator) Allocator.Error!Properties {
+pub fn init(allocator: Allocator) Allocator.Error!Properties {
     const decompressor = std.compress.flate.inflate.decompressor;
 
     // Process DerivedCoreProperties.txt

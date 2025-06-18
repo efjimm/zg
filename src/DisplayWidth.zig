@@ -64,7 +64,7 @@ pub fn deinit(dw: *const DisplayWidth, allocator: std.mem.Allocator) void {
 /// 3, where BACKSPACE and DELETE return -1 and 3-em-dash returns 3. C0/C1
 /// control codes return 0. If `cjk` is true, ambiguous code points return 2,
 /// otherwise they return 1.
-pub fn codePointWidth(dw: DisplayWidth, cp: u21) i4 {
+pub fn codePointWidth(dw: *const DisplayWidth, cp: u21) i4 {
     return dw.s2[dw.s1[cp >> 8] + (cp & 0xff)];
 }
 
@@ -99,7 +99,7 @@ test "codePointWidth" {
 
 /// strWidth returns the total display width of `str` as the number of cells
 /// required in a fixed-pitch font (i.e. a terminal screen).
-pub fn strWidth(dw: DisplayWidth, str: []const u8) usize {
+pub fn strWidth(dw: *const DisplayWidth, str: []const u8) usize {
     var total: isize = 0;
 
     // ASCII fast path
@@ -205,7 +205,7 @@ test "strWidth" {
 /// receive one additional pad. This makes sure the returned string fills the requested width.
 /// Caller must free returned bytes with `allocator`.
 pub fn center(
-    dw: DisplayWidth,
+    dw: *const DisplayWidth,
     allocator: std.mem.Allocator,
     str: []const u8,
     total_width: usize,
@@ -291,7 +291,7 @@ test "center" {
 /// padLeft returns a new string of width `total_width` (in display cells) using `pad` as padding
 /// on the left side. Caller must free returned bytes with `allocator`.
 pub fn padLeft(
-    dw: DisplayWidth,
+    dw: *const DisplayWidth,
     allocator: std.mem.Allocator,
     str: []const u8,
     total_width: usize,
@@ -339,7 +339,7 @@ test "padLeft" {
 /// padRight returns a new string of width `total_width` (in display cells) using `pad` as padding
 /// on the right side.  Caller must free returned bytes with `allocator`.
 pub fn padRight(
-    dw: DisplayWidth,
+    dw: *const DisplayWidth,
     allocator: std.mem.Allocator,
     str: []const u8,
     total_width: usize,
@@ -389,7 +389,7 @@ test "padRight" {
 /// `threshold` defines how far the last column of the last word can be
 /// from the edge. Caller must free returned bytes with `allocator`.
 pub fn wrap(
-    dw: DisplayWidth,
+    dw: *const DisplayWidth,
     allocator: std.mem.Allocator,
     str: []const u8,
     columns: usize,

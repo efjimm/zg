@@ -78,12 +78,12 @@ pub fn deinit(gencat: *const GeneralCategories, allocator: std.mem.Allocator) vo
 }
 
 /// Lookup the General Category for `cp`.
-pub fn gc(gencat: GeneralCategories, cp: u21) Gc {
+pub fn gc(gencat: *const GeneralCategories, cp: u21) Gc {
     return @enumFromInt(gencat.s3[gencat.s2[gencat.s1[cp >> 8] + (cp & 0xff)]]);
 }
 
 /// True if `cp` has an C general category.
-pub fn isControl(gencat: GeneralCategories, cp: u21) bool {
+pub fn isControl(gencat: *const GeneralCategories, cp: u21) bool {
     return switch (gencat.gc(cp)) {
         .Cc,
         .Cf,
@@ -96,7 +96,7 @@ pub fn isControl(gencat: GeneralCategories, cp: u21) bool {
 }
 
 /// True if `cp` has an L general category.
-pub fn isLetter(gencat: GeneralCategories, cp: u21) bool {
+pub fn isLetter(gencat: *const GeneralCategories, cp: u21) bool {
     return switch (gencat.gc(cp)) {
         .Ll,
         .Lm,
@@ -109,7 +109,7 @@ pub fn isLetter(gencat: GeneralCategories, cp: u21) bool {
 }
 
 /// True if `cp` has an M general category.
-pub fn isMark(gencat: GeneralCategories, cp: u21) bool {
+pub fn isMark(gencat: *const GeneralCategories, cp: u21) bool {
     return switch (gencat.gc(cp)) {
         .Mc,
         .Me,
@@ -120,7 +120,7 @@ pub fn isMark(gencat: GeneralCategories, cp: u21) bool {
 }
 
 /// True if `cp` has an N general category.
-pub fn isNumber(gencat: GeneralCategories, cp: u21) bool {
+pub fn isNumber(gencat: *const GeneralCategories, cp: u21) bool {
     return switch (gencat.gc(cp)) {
         .Nd,
         .Nl,
@@ -131,7 +131,7 @@ pub fn isNumber(gencat: GeneralCategories, cp: u21) bool {
 }
 
 /// True if `cp` has an P general category.
-pub fn isPunctuation(gencat: GeneralCategories, cp: u21) bool {
+pub fn isPunctuation(gencat: *const GeneralCategories, cp: u21) bool {
     return switch (gencat.gc(cp)) {
         .Pc,
         .Pd,
@@ -146,7 +146,7 @@ pub fn isPunctuation(gencat: GeneralCategories, cp: u21) bool {
 }
 
 /// True if `cp` has an S general category.
-pub fn isSymbol(gencat: GeneralCategories, cp: u21) bool {
+pub fn isSymbol(gencat: *const GeneralCategories, cp: u21) bool {
     return switch (gencat.gc(cp)) {
         .Sc,
         .Sk,
@@ -158,7 +158,7 @@ pub fn isSymbol(gencat: GeneralCategories, cp: u21) bool {
 }
 
 /// True if `cp` has an Z general category.
-pub fn isSeparator(gencat: GeneralCategories, cp: u21) bool {
+pub fn isSeparator(gencat: *const GeneralCategories, cp: u21) bool {
     return switch (gencat.gc(cp)) {
         .Zl,
         .Zp,

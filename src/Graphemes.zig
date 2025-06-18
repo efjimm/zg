@@ -46,17 +46,17 @@ pub fn deinit(g: *const Graphemes, allocator: std.mem.Allocator) void {
 }
 
 /// Lookup the grapheme break property for a code point.
-pub fn gbp(graphemes: Graphemes, cp: u21) Gbp {
+pub fn gbp(graphemes: *const Graphemes, cp: u21) Gbp {
     return @enumFromInt(graphemes.s3[graphemes.s2[graphemes.s1[cp >> 8] + (cp & 0xff)]] >> 4);
 }
 
 /// Lookup the indic syllable type for a code point.
-pub fn indic(graphemes: Graphemes, cp: u21) Indic {
+pub fn indic(graphemes: *const Graphemes, cp: u21) Indic {
     return @enumFromInt((graphemes.s3[graphemes.s2[graphemes.s1[cp >> 8] + (cp & 0xff)]] >> 1) & 0x7);
 }
 
 /// Lookup the emoji property for a code point.
-pub fn isEmoji(graphemes: Graphemes, cp: u21) bool {
+pub fn isEmoji(graphemes: *const Graphemes, cp: u21) bool {
     return graphemes.s3[graphemes.s2[graphemes.s1[cp >> 8] + (cp & 0xff)]] & 1 == 1;
 }
 
@@ -139,10 +139,9 @@ pub const Iterator = struct {
         var gc_len: usize = self.buf[0].?.len;
         var state = State{};
 
-        if (graphemeBreak(
+        if (self.data.isBreak(
             self.buf[0].?.code,
             self.buf[1].?.code,
-            self.data,
             &state,
         )) return Grapheme{ .len = gc_len, .offset = gc_start };
 
@@ -152,10 +151,9 @@ pub const Iterator = struct {
 
             gc_len += self.buf[0].?.len;
 
-            if (graphemeBreak(
+            if (self.data.isBreak(
                 self.buf[0].?.code,
                 if (self.buf[1]) |ncp| ncp.code else 0,
-                self.data,
                 &state,
             )) break;
         }
@@ -200,10 +198,9 @@ pub const Iterator = struct {
         var gc_len: usize = self.buf[0].?.len;
         var state = State{};
 
-        if (graphemeBreak(
+        if (self.data.isBreak(
             self.buf[0].?.code,
             self.buf[1].?.code,
-            self.data,
             &state,
         )) {
             self.cp_iter = saved_cp_iter;
@@ -218,10 +215,9 @@ pub const Iterator = struct {
 
             gc_len += self.buf[0].?.len;
 
-            if (graphemeBreak(
+            if (self.data.isBreak(
                 self.buf[0].?.code,
                 if (self.buf[1]) |ncp| ncp.code else 0,
-                self.data,
                 &state,
             )) break;
         }
@@ -286,10 +282,10 @@ pub const State = struct {
 /// IN ORDER on ALL potential breaks in a string.
 /// Modeled after the API of utf8proc's `utf8proc_grapheme_break_stateful`.
 /// https://github.com/JuliaStrings/utf8proc/blob/2bbb1ba932f727aad1fab14fafdbc89ff9dc4604/utf8proc.h#L599-L617
-pub fn graphemeBreak(
+pub fn isBreak(
+    data: *const Graphemes,
     cp1: u21,
     cp2: u21,
-    data: *const Graphemes,
     state: *State,
 ) bool {
     // Extract relevant properties.

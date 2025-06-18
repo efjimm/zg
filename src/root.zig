@@ -32,25 +32,34 @@ pub const UnicodeData = enum {
     scripts,
 };
 
-pub fn initData(allocator: std.mem.Allocator, comptime fields: []const UnicodeData) !void {
+/// Initializes the given unicode data in the global variables corresponding to the passed enum
+/// tags. Every call to this function should have a matching call to `deinitData`.
+///
+/// The global unicode data variables are reference counted, so it is safe to initialize them
+/// multiple times. You can check if data is already initialized with `isInitialized`, which is
+/// useful for ensuring your number of `initData` and `deinitData` calls match.
+pub fn initData(
+    allocator: std.mem.Allocator,
+    comptime fields: []const UnicodeData,
+) std.mem.Allocator.Error!void {
     for (fields) |tag| {
         const ref = refs.getPtr(tag);
         switch (tag) {
             .case_folding => {
                 if (ref.* == 0) {
                     try initData(allocator, &.{.normalize});
-                    case_folding = try .initWithNormalize(allocator, normalize.?);
+                    case_folding = try .initWithNormalize(allocator, normalize);
                 }
             },
             .display_width => {
                 if (ref.* == 0) {
                     try initData(allocator, &.{.graphemes});
-                    display_width = try .initWithGraphemes(allocator, graphemes.?);
+                    display_width = try .initWithGraphemes(allocator, graphemes);
                 }
             },
-            else => {
+            inline else => |t| {
                 if (ref.* == 0)
-                    @field(@This(), @tagName(tag)) = try .init(allocator);
+                    @field(@This(), @tagName(t)) = try .init(allocator);
             },
         }
         ref.* += 1;
@@ -79,13 +88,18 @@ pub fn deinitData(allocator: std.mem.Allocator, comptime fields: []const Unicode
                     .graphemes => {
                         std.debug.assert(refs.get(.display_width) == 0);
                     },
+                    else => {},
                 }
-                const ptr = &@field(@This(), @tagName(tag));
+                const ptr = &@field(@This(), @tagName(t));
                 ptr.deinit(allocator);
                 ptr.* = undefined;
             },
         }
     }
+}
+
+pub fn isInitialized(field: UnicodeData) bool {
+    return refs.get(field) > 0;
 }
 
 test {
