@@ -125,7 +125,7 @@ pub fn strWidth(dw: *const DisplayWidth, str: []const u8) usize {
     var giter = dw.graphemes.iterator(str);
 
     while (giter.next()) |gc| {
-        var cp_iter = CodePointIterator{ .bytes = gc.bytes(str) };
+        var cp_iter: CodePointIterator = .init(gc.bytes(str));
         var gc_total: isize = 0;
 
         while (cp_iter.next()) |cp| {

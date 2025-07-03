@@ -130,7 +130,7 @@ pub const Iterator = struct {
     /// Assumes `src` is valid UTF-8.
     pub fn init(str: []const u8, data: *const Graphemes) Self {
         assert(data.isInitialized());
-        var self = Self{ .cp_iter = .{ .bytes = str }, .data = data };
+        var self = Self{ .cp_iter = .init(str), .data = data };
         self.advance();
         return self;
     }

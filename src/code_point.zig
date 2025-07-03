@@ -57,10 +57,19 @@ pub fn decode(bytes: []const u8) DecodeResult {
 /// `Iterator` iterates a string one `CodePoint` at-a-time.
 pub const Iterator = struct {
     bytes: []const u8,
-    i: usize = 0,
+    i: usize,
 
     pub fn init(bytes: []const u8) Iterator {
-        return .{ .bytes = bytes, .i = 0 };
+        return .initAt(bytes, 0);
+    }
+
+    pub fn initEnd(bytes: []const u8) Iterator {
+        return .initAt(bytes, bytes.len);
+    }
+
+    pub fn initAt(bytes: []const u8, index: usize) Iterator {
+        assert(index <= bytes.len);
+        return .{ .bytes = bytes, .i = index };
     }
 
     pub fn next(self: *Iterator) ?CodePoint {
@@ -75,10 +84,31 @@ pub const Iterator = struct {
         };
     }
 
-    pub fn peek(self: *Iterator) ?CodePoint {
+    pub fn prev(iter: *Iterator) ?CodePoint {
+        if (iter.i == 0) return null;
+        while (iter.i > 0) {
+            iter.i -= 1;
+            if (iter.bytes[iter.i] & 0xC0 != 0x80) break;
+        }
+
+        const res = decode(iter.bytes[iter.i..]);
+        return .{
+            .code = res.code,
+            .len = res.len,
+            .offset = iter.i,
+        };
+    }
+
+    pub fn peekNext(self: *Iterator) ?CodePoint {
         const saved_i = self.i;
         defer self.i = saved_i;
         return self.next();
+    }
+
+    pub fn peekPrev(self: *Iterator) ?CodePoint {
+        const saved_i = self.i;
+        defer self.i = saved_i;
+        return self.prev();
     }
 };
 
@@ -154,18 +184,41 @@ test "decode" {
     const bytes = "🌩️";
     const cp = decode(bytes);
 
-    try std.testing.expectEqual(@as(u21, 0x1F329), cp.code);
+    try std.testing.expectEqual(0x1F329, cp.code);
     try std.testing.expectEqual(4, cp.len);
 }
 
-test "peek" {
-    var iter = Iterator{ .bytes = "Hi" };
+test Iterator {
+    var iter: Iterator = .init("Hi");
 
-    try expectEqual(@as(u21, 'H'), iter.next().?.code);
-    try expectEqual(@as(u21, 'i'), iter.peek().?.code);
-    try expectEqual(@as(u21, 'i'), iter.next().?.code);
-    try expectEqual(@as(?CodePoint, null), iter.peek());
-    try expectEqual(@as(?CodePoint, null), iter.next());
+    try testing.expectEqual('H', iter.next().?.code);
+    try testing.expectEqual('i', iter.peekNext().?.code);
+    try testing.expectEqual('i', iter.next().?.code);
+    try testing.expectEqual(null, iter.peekNext());
+    try testing.expectEqual(null, iter.next());
+    try testing.expectEqual(null, iter.next());
+
+    iter = .initEnd("ABC");
+    try testing.expectEqual('C', iter.prev().?.code);
+    try testing.expectEqual('B', iter.peekPrev().?.code);
+    try testing.expectEqual('B', iter.prev().?.code);
+    try testing.expectEqual('A', iter.prev().?.code);
+    try testing.expectEqual(null, iter.peekPrev());
+    try testing.expectEqual(null, iter.prev());
+    try testing.expectEqual(null, iter.prev());
+
+    iter = .initEnd("∅δq🦾ă");
+    try testing.expectEqual('ă', iter.prev().?.code);
+    try testing.expectEqual('🦾', iter.prev().?.code);
+    try testing.expectEqual('q', iter.prev().?.code);
+    try testing.expectEqual('δ', iter.peekPrev().?.code);
+    try testing.expectEqual('δ', iter.prev().?.code);
+    try testing.expectEqual('∅', iter.peekPrev().?.code);
+    try testing.expectEqual('∅', iter.peekPrev().?.code);
+    try testing.expectEqual('∅', iter.prev().?.code);
+    try testing.expectEqual(null, iter.peekPrev());
+    try testing.expectEqual(null, iter.prev());
+    try testing.expectEqual(null, iter.prev());
 }
 
 test "overlongs" {

@@ -314,7 +314,7 @@ pub fn nfxdCodePoints(self: *const Normalize, allocator: Allocator, str: []const
     var dcp_list = std.ArrayList(u21).init(allocator);
     defer dcp_list.deinit();
 
-    var cp_iter = CodePointIterator{ .bytes = str };
+    var cp_iter: CodePointIterator = .init(str);
     var dc_buf: [18]u21 = undefined;
 
     while (cp_iter.next()) |cp| {
@@ -630,7 +630,7 @@ test "eql" {
 /// Returns true if `str` only contains Latin-1 Supplement
 /// code points. Uses SIMD if possible.
 pub fn isLatin1Only(str: []const u8) bool {
-    var cp_iter = CodePointIterator{ .bytes = str };
+    var cp_iter: CodePointIterator = .init(str);
 
     const vec_len = std.simd.suggestVectorLength(u21) orelse return blk: {
         break :blk while (cp_iter.next()) |cp| {

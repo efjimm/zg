@@ -104,7 +104,7 @@ pub fn isUpper(self: *const LetterCasing, cp: u21) bool {
 /// Returns true if `str` is all uppercase.
 pub fn isUpperStr(self: *const LetterCasing, str: []const u8) bool {
     assert(self.isInitialized());
-    var iter = CodePointIterator{ .bytes = str };
+    var iter: CodePointIterator = .init(str);
 
     while (iter.next()) |cp| {
         if (self.isCased(cp.code) and !self.isUpper(cp.code))
@@ -140,7 +140,7 @@ pub fn toUpperStr(
     var bytes = std.ArrayList(u8).init(allocator);
     defer bytes.deinit();
 
-    var iter = CodePointIterator{ .bytes = str };
+    var iter: CodePointIterator = .init(str);
     var buf: [4]u8 = undefined;
 
     while (iter.next()) |cp| {
@@ -169,7 +169,7 @@ pub fn isLower(self: *const LetterCasing, cp: u21) bool {
 /// Returns true if `str` is all lowercase.
 pub fn isLowerStr(self: *const LetterCasing, str: []const u8) bool {
     assert(self.isInitialized());
-    var iter = CodePointIterator{ .bytes = str };
+    var iter: CodePointIterator = .init(str);
 
     while (iter.next()) |cp| {
         if (self.isCased(cp.code) and !self.isLower(cp.code))
@@ -206,7 +206,7 @@ pub fn toLowerStr(
     var bytes = std.ArrayList(u8).init(allocator);
     defer bytes.deinit();
 
-    var iter = CodePointIterator{ .bytes = str };
+    var iter: CodePointIterator = .init(str);
     var buf: [4]u8 = undefined;
 
     while (iter.next()) |cp| {
