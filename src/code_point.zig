@@ -15,125 +15,43 @@ pub const CodePoint = struct {
     offset: usize,
 };
 
-/// Decode the CodePoint, if any, at `bytes[idx]`.
-pub fn decode(bytes: []const u8) ?CodePoint {
-    var off: usize = 0;
-    return decodeAtCursor(bytes, &off);
-}
+pub const DecodeResult = struct {
+    code: u21,
+    len: u3,
+};
 
-/// Decode the CodePoint, if any, at `bytes[cursor.*]`.  After, the
-/// cursor will point at the next potential codepoint index.
-pub fn decodeAtCursor(bytes: []const u8, cursor: *usize) ?CodePoint {
-    // EOS
-    if (cursor.* >= bytes.len) return null;
-
-    const this_off = cursor.*;
-    cursor.* += 1; // +1
-
-    // ASCII
-    var byte = bytes[this_off];
-    if (byte < 0x80) return .{
-        .code = byte,
-        .offset = this_off,
+pub fn decode(bytes: []const u8) DecodeResult {
+    if (bytes[0] < 0x80) return .{
+        .code = bytes[0],
         .len = 1,
     };
-    // Multibyte
 
-    // Second:
-    var class: u4 = @intCast(u8dfa[byte]);
-    var st: usize = state_dfa[class];
-    if (st == RUNE_REJECT or cursor.* == bytes.len) {
-        @branchHint(.cold);
-        // First one is never a truncation
-        return .{
-            .code = 0xfffd,
-            .len = 1,
-            .offset = this_off,
-        };
-    }
-    var rune: usize = byte & class_mask[class];
-    byte = bytes[cursor.*];
-    class = @intCast(u8dfa[byte]);
-    st = state_dfa[st + class];
-    rune = (byte & 0x3f) | (rune << 6);
-    cursor.* += 1; // +2
-    if (st == RUNE_ACCEPT) {
-        return .{
-            .code = @intCast(rune),
-            .len = 2,
-            .offset = this_off,
-        };
-    }
-    if (st == RUNE_REJECT or cursor.* == bytes.len) {
-        @branchHint(.cold);
-        // Truncation and other bad bytes the same here:
-        cursor.* -= 1; // + 1
-        return .{
-            .code = 0xfffd,
-            .len = 1,
-            .offset = this_off,
-        };
-    }
-    // Third
-    byte = bytes[cursor.*];
-    class = @intCast(u8dfa[byte]);
-    st = state_dfa[st + class];
-    rune = (byte & 0x3f) | (rune << 6);
-    cursor.* += 1; // +3
-    if (st == RUNE_ACCEPT) {
-        return .{
-            .code = @intCast(rune),
-            .len = 3,
-            .offset = this_off,
-        };
-    }
-    if (st == RUNE_REJECT or cursor.* == bytes.len) {
-        @branchHint(.cold);
-        if (state_dfa[@intCast(u8dfa[byte])] == RUNE_REJECT) {
-            cursor.* -= 2; // +1
+    var st: usize = 0;
+    var rune: u21 = undefined;
+    inline for (0..4) |i| {
+        const byte = bytes[i];
+        const class = u8dfa[byte];
+        st = state_dfa[st + class];
+        rune = if (i == 0)
+            byte & class_mask[class]
+        else
+            (byte & 0x3f) | (rune << 6);
+
+        if (st == RUNE_ACCEPT) {
             return .{
-                .code = 0xfffd,
-                .len = 1,
-                .offset = this_off,
-            };
-        } else {
-            cursor.* -= 1; // +2
-            return .{
-                .code = 0xfffd,
-                .len = 2,
-                .offset = this_off,
+                .code = rune,
+                .len = i + 1,
             };
         }
-    }
-    byte = bytes[cursor.*];
-    class = @intCast(u8dfa[byte]);
-    st = state_dfa[st + class];
-    rune = (byte & 0x3f) | (rune << 6);
-    cursor.* += 1; // +4
-    if (st == RUNE_REJECT) {
-        @branchHint(.cold);
-        if (state_dfa[@intCast(u8dfa[byte])] == RUNE_REJECT) {
-            cursor.* -= 3; // +1
+
+        if (st == RUNE_REJECT or bytes.len == i + 1) {
+            @branchHint(.cold);
             return .{
                 .code = 0xfffd,
-                .len = 1,
-                .offset = this_off,
-            };
-        } else {
-            cursor.* -= 1; // +3
-            return .{
-                .code = 0xfffd,
-                .len = 3,
-                .offset = this_off,
+                .len = if (state_dfa[u8dfa[byte]] == RUNE_REJECT) 1 else i,
             };
         }
-    }
-    assert(st == RUNE_ACCEPT);
-    return .{
-        .code = @intCast(rune),
-        .len = 4,
-        .offset = this_off,
-    };
+    } else unreachable;
 }
 
 /// `Iterator` iterates a string one `CodePoint` at-a-time.
@@ -146,7 +64,15 @@ pub const Iterator = struct {
     }
 
     pub fn next(self: *Iterator) ?CodePoint {
-        return decodeAtCursor(self.bytes, &self.i);
+        if (self.i >= self.bytes.len) return null;
+        const res = decode(self.bytes[self.i..]);
+        const offset = self.i;
+        self.i += res.len;
+        return .{
+            .code = res.code,
+            .len = res.len,
+            .offset = offset,
+        };
     }
 
     pub fn peek(self: *Iterator) ?CodePoint {
@@ -226,15 +152,10 @@ const class_mask: [12]u8 = .{
 
 test "decode" {
     const bytes = "🌩️";
-    const res = decode(bytes);
+    const cp = decode(bytes);
 
-    if (res) |cp| {
-        try std.testing.expectEqual(@as(u21, 0x1F329), cp.code);
-        try std.testing.expectEqual(4, cp.len);
-    } else {
-        // shouldn't have failed to return
-        try std.testing.expect(false);
-    }
+    try std.testing.expectEqual(@as(u21, 0x1F329), cp.code);
+    try std.testing.expectEqual(4, cp.len);
 }
 
 test "peek" {
