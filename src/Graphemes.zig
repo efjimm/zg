@@ -84,27 +84,27 @@ pub fn iterator(graphemes: *const Graphemes, string: []const u8) Iterator {
 pub const Indic = enum {
     none,
 
-    Consonant,
-    Extend,
-    Linker,
+    consonant,
+    extend,
+    linker,
 };
 
 /// Grapheme break property.
 pub const Gbp = enum {
     none,
-    Control,
-    CR,
-    Extend,
-    L,
-    LF,
-    LV,
-    LVT,
-    Prepend,
-    Regional_Indicator,
-    SpacingMark,
-    T,
-    V,
-    ZWJ,
+    control,
+    cr,
+    extend,
+    l,
+    lf,
+    lv,
+    lvt,
+    prepend,
+    regional_indicator,
+    spacing_mark,
+    t,
+    v,
+    zwj,
 };
 
 /// `Grapheme` represents a Unicode grapheme cluster by its length and offset in the source bytes.
@@ -120,141 +120,254 @@ pub const Grapheme = struct {
 };
 
 /// `Iterator` iterates a sting of UTF-8 encoded bytes one grapheme cluster at-a-time.
+/// Right now, I have no idea if it is legal to call `next` and `prev` on the same iterator
+/// instance without resetting the internal state.
 pub const Iterator = struct {
-    buf: [2]?CodePoint = .{ null, null },
+    buf: [2]?CodePoint = @splat(null),
     cp_iter: CodePointIterator,
     data: *const Graphemes,
+    pending: Pending = .{ .none = {} },
 
-    const Self = @This();
+    pub const Pending = union(enum) {
+        none,
+        /// Count of pending RI codepoints, it is an even number
+        ri_count: usize,
+        /// End of (Extend* ZWJ) sequence pending from failed GB11: !Emoji Extend* ZWJ x Emoji
+        extend_end: usize,
+    };
 
     /// Assumes `src` is valid UTF-8.
-    pub fn init(str: []const u8, data: *const Graphemes) Self {
+    pub fn init(str: []const u8, data: *const Graphemes) Iterator {
         assert(data.isInitialized());
-        var self = Self{ .cp_iter = .init(str), .data = data };
-        self.advance();
+        var iter: Iterator = .{ .cp_iter = .init(str), .data = data };
+        iter.advanceForward();
+        return iter;
+    }
+
+    /// Assumes `src` is valid UTF-8.
+    pub fn initEnd(str: []const u8, data: *const Graphemes) Iterator {
+        assert(data.isInitialized());
+        var self: Iterator = .{ .cp_iter = .initEnd(str), .data = data };
+        self.advanceBackward();
+        self.advanceBackward();
         return self;
     }
 
-    fn advance(self: *Self) void {
+    fn advanceForward(self: *Iterator) void {
         self.buf[0] = self.buf[1];
         self.buf[1] = self.cp_iter.next();
     }
 
-    pub fn next(self: *Self) ?Grapheme {
-        assert(self.data.isInitialized());
-        self.advance();
-
-        // If no more
-        if (self.buf[0] == null) return null;
-        // If last one
-        if (self.buf[1] == null) return Grapheme{ .len = self.buf[0].?.len, .offset = self.buf[0].?.offset };
-        // If ASCII
-        if (self.buf[0].?.code != '\r' and self.buf[0].?.code < 128 and self.buf[1].?.code < 128) {
-            return Grapheme{ .len = self.buf[0].?.len, .offset = self.buf[0].?.offset };
-        }
-
-        const gc_start = self.buf[0].?.offset;
-        var gc_len: usize = self.buf[0].?.len;
-        var state = State{};
-
-        if (self.data.isBreak(
-            self.buf[0].?.code,
-            self.buf[1].?.code,
-            &state,
-        )) return Grapheme{ .len = gc_len, .offset = gc_start };
-
-        while (true) {
-            self.advance();
-            if (self.buf[0] == null) break;
-
-            gc_len += self.buf[0].?.len;
-
-            if (self.data.isBreak(
-                self.buf[0].?.code,
-                if (self.buf[1]) |ncp| ncp.code else 0,
-                &state,
-            )) break;
-        }
-
-        return Grapheme{ .len = gc_len, .offset = gc_start };
+    fn advanceBackward(self: *Iterator) void {
+        self.buf[1] = self.buf[0];
+        self.buf[0] = self.cp_iter.prev();
     }
 
-    pub fn peek(self: *Self) ?Grapheme {
+    pub fn next(self: *Iterator) ?Grapheme {
         assert(self.data.isInitialized());
-        const saved_cp_iter = self.cp_iter;
-        const s0 = self.buf[0];
-        const s1 = self.buf[1];
+        self.advanceForward();
 
-        self.advance();
+        var cp0 = self.buf[0] orelse return null;
+        var code1 = if (self.buf[1]) |cp| cp.code else return .{
+            .len = cp0.len,
+            .offset = cp0.offset,
+        };
 
-        // If no more
-        if (self.buf[0] == null) {
-            self.cp_iter = saved_cp_iter;
-            self.buf[0] = s0;
-            self.buf[1] = s1;
-            return null;
-        }
-        // If last one
-        if (self.buf[1] == null) {
-            const len = self.buf[0].?.len;
-            const offset = self.buf[0].?.offset;
-            self.cp_iter = saved_cp_iter;
-            self.buf[0] = s0;
-            self.buf[1] = s1;
-            return Grapheme{ .len = len, .offset = offset };
-        }
         // If ASCII
-        if (self.buf[0].?.code != '\r' and self.buf[0].?.code < 128 and self.buf[1].?.code < 128) {
-            const len = self.buf[0].?.len;
-            const offset = self.buf[0].?.offset;
-            self.cp_iter = saved_cp_iter;
-            self.buf[0] = s0;
-            self.buf[1] = s1;
-            return Grapheme{ .len = len, .offset = offset };
+        if (cp0.code != '\r' and cp0.code < 0x80 and code1 < 0x80)
+            return .{ .len = cp0.len, .offset = cp0.offset };
+
+        const gc_start = cp0.offset;
+        var gc_len: usize = cp0.len;
+        var state: State = .reset;
+
+        while (!self.data.isBreak(cp0.code, code1, &state)) : (gc_len += cp0.len) {
+            self.advanceForward();
+            cp0 = self.buf[0] orelse break;
+            code1 = if (self.buf[1]) |cp| cp.code else 0;
         }
 
-        const gc_start = self.buf[0].?.offset;
-        var gc_len: usize = self.buf[0].?.len;
-        var state = State{};
+        return .{ .len = gc_len, .offset = gc_start };
+    }
 
-        if (self.data.isBreak(
-            self.buf[0].?.code,
-            self.buf[1].?.code,
-            &state,
-        )) {
-            self.cp_iter = saved_cp_iter;
-            self.buf[0] = s0;
-            self.buf[1] = s1;
-            return Grapheme{ .len = gc_len, .offset = gc_start };
+    pub fn prev(self: *Iterator) ?Grapheme {
+        const first_cp = self.buf[1] orelse return null;
+
+        const grapheme_end: usize = end: switch (self.pending) {
+            // BUF: [?Any, Any]
+            .none => first_cp.offset + first_cp.len,
+            .ri_count => |ri_count| {
+                assert(ri_count > 0);
+                assert(ri_count % 2 == 0);
+
+                if (ri_count > 2) {
+                    self.pending.ri_count -= 2;
+
+                    // Use the fact that all RI have length 4 in utf8 encoding
+                    // since they are in range 0x1f1e6...0x1f1ff
+                    // https://en.wikipedia.org/wiki/UTF-8#Encoding
+                    return .{
+                        .len = 8,
+                        .offset = first_cp.offset + self.pending.ri_count * 4,
+                    };
+                } else {
+                    self.pending = .none;
+                    break :end first_cp.offset + first_cp.len + 4;
+                }
+            },
+            // BUF: [?Any, Extend] Extend* ZWJ
+            .extend_end => |extend_end| {
+                self.pending = .none;
+                break :end extend_end;
+            },
+        };
+
+        while (self.buf[0] != null) {
+            var state: State = .reset;
+            state.setXpic();
+            state.unsetRegional();
+            state.setIndic();
+
+            if (self.data.isBreak(self.buf[0].?.code, self.buf[1].?.code, &state))
+                break;
+
+            self.advanceBackward();
+
+            if (!state.hasIndic()) {
+
+                // BUF: [?Any, Extend | Linker] Consonant
+                var indic_offset: usize = self.buf[1].?.offset + self.buf[1].?.len;
+
+                while (self.buf[0]) |cp0| {
+                    switch (self.data.indic(cp0.code)) {
+                        .extend, .linker => {
+                            self.advanceBackward();
+                            continue;
+                        },
+                        .consonant => {
+                            // BUF: [Consonant, Extend | Linker] (Extend | Linker)* Consonant
+                            indic_offset = cp0.offset;
+                            self.advanceBackward();
+
+                            const new_cp0 = self.buf[0] orelse break;
+                            state.setIndic();
+
+                            const has_break = self.data.isBreak(new_cp0.code, self.buf[1].?.code, &state);
+                            if (has_break or state.hasIndic())
+                                break;
+                        },
+                        .none => {
+                            // BUF: [Any, Extend | Linker] (Extend | Linker)* Consonant
+                            self.pending = .{ .extend_end = indic_offset };
+                            return .{
+                                .len = grapheme_end - indic_offset,
+                                .offset = indic_offset,
+                            };
+                        },
+                    }
+                } else {
+                    self.pending = .{ .extend_end = indic_offset };
+                    return .{
+                        .len = grapheme_end - indic_offset,
+                        .offset = indic_offset,
+                    };
+                }
+            }
+
+            if (!state.hasXpic()) {
+                // BUF: [?Any, ZWJ] Emoji
+                var emoji_offset = self.buf[1].?.offset + self.buf[1].?.len;
+
+                // Look for previous Emoji
+                while (self.buf[0]) |codepoint| : (self.advanceBackward()) {
+                    if (self.data.gbp(codepoint.code) == .extend)
+                        continue;
+
+                    if (!self.data.isEmoji(codepoint.code)) {
+                        // BUF: [Any, Extend] (Extend* ZWJ Emoji)*
+                        self.pending = .{ .extend_end = emoji_offset };
+                        return .{
+                            .len = grapheme_end - emoji_offset,
+                            .offset = emoji_offset,
+                        };
+                    }
+
+                    // BUF: [Emoji, Extend] (Extend* ZWJ Emoji)*
+                    emoji_offset = codepoint.offset;
+                    self.advanceBackward();
+
+                    // ZWJ = 0x200d
+                    if (self.buf[0] == null or self.buf[0].?.code != 0x200d)
+                        // BUF: [?Any, Emoji] (Extend* ZWJ Emoji)*
+                        break;
+
+                    // BUF: [ZWJ, Emoji] (Extend* ZWJ Emoji)*
+                    // Back at the beginning of the loop, "recursively" look for emoji
+                } else {
+                    self.pending = .{ .extend_end = emoji_offset };
+                    return .{
+                        .len = grapheme_end - emoji_offset,
+                        .offset = emoji_offset,
+                    };
+                }
+            }
+
+            if (state.hasRegional()) {
+                var ri_count: usize = 0;
+                while (self.buf[0] != null and
+                    self.data.gbp(self.buf[0].?.code) == .regional_indicator)
+                {
+                    ri_count += 1;
+                    self.advanceBackward();
+                }
+
+                // Use the fact that all RI have length 4 in utf8 encoding
+                // since they are in range 0x1f1e6...0x1f1ff
+                // https://en.wikipedia.org/wiki/UTF-8#Encoding
+                if (ri_count == 0) {
+                    // There are no pending RI codepoints
+                } else if (ri_count % 2 == 0) {
+                    self.pending = .{ .ri_count = ri_count };
+                    return .{ .len = 8, .offset = grapheme_end - 8 };
+                } else {
+                    // Add one to count for the unused RI
+                    self.pending = .{ .ri_count = ri_count + 1 };
+                    return .{ .len = 4, .offset = grapheme_end - 4 };
+                }
+            }
         }
 
-        while (true) {
-            self.advance();
-            if (self.buf[0] == null) break;
+        const grapheme_start = if (self.buf[1]) |codepoint| codepoint.offset else 0;
+        self.advanceBackward();
+        return .{
+            .len = grapheme_end - grapheme_start,
+            .offset = grapheme_start,
+        };
+    }
 
-            gc_len += self.buf[0].?.len;
+    pub fn peekNext(iter: *const Iterator) ?Grapheme {
+        var temp = iter.*;
+        return temp.next();
+    }
 
-            if (self.data.isBreak(
-                self.buf[0].?.code,
-                if (self.buf[1]) |ncp| ncp.code else 0,
-                &state,
-            )) break;
-        }
-        self.cp_iter = saved_cp_iter;
-        self.buf[0] = s0;
-        self.buf[1] = s1;
-
-        return Grapheme{ .len = gc_len, .offset = gc_start };
+    pub fn peekPrev(iter: *const Iterator) ?Grapheme {
+        var temp = iter.*;
+        return temp.prev();
     }
 };
+
+pub fn reverseIterator(data: *const Graphemes, str: []const u8) Iterator {
+    return .initEnd(str, data);
+}
 
 // Predicates
 fn isBreaker(cp: u21, data: *const Graphemes) bool {
     // Extract relevant properties.
     const cp_gbp_prop = data.gbp(cp);
-    return cp == '\x0d' or cp == '\x0a' or cp_gbp_prop == .Control;
+    return cp == '\x0d' or cp == '\x0a' or cp_gbp_prop == .control;
 }
 
+// TODO: Make this a packed struct
 // Grapheme break state.
 pub const State = struct {
     bits: u3 = 0,
@@ -320,7 +433,7 @@ pub fn isBreak(
     // GB11: Emoji Extend* ZWJ x Emoji
     if (!state.hasXpic() and cp1_is_emoji) state.setXpic();
     // GB9c: Indic Conjunct Break
-    if (!state.hasIndic() and cp1_indic_prop == .Consonant) state.setIndic();
+    if (!state.hasIndic() and cp1_indic_prop == .consonant) state.setIndic();
 
     // GB3: CR x LF
     if (cp1 == '\r' and cp2 == '\n') return false;
@@ -330,7 +443,7 @@ pub fn isBreak(
 
     // GB11: Emoji Extend* ZWJ x Emoji
     if (state.hasXpic() and
-        cp1_gbp_prop == .ZWJ and
+        cp1_gbp_prop == .zwj and
         cp2_is_emoji)
     {
         state.unsetXpic();
@@ -338,16 +451,16 @@ pub fn isBreak(
     }
 
     // GB9b: x (Extend | ZWJ)
-    if (cp2_gbp_prop == .Extend or cp2_gbp_prop == .ZWJ) return false;
+    if (cp2_gbp_prop == .extend or cp2_gbp_prop == .zwj) return false;
 
     // GB9a: x Spacing
-    if (cp2_gbp_prop == .SpacingMark) return false;
+    if (cp2_gbp_prop == .spacing_mark) return false;
 
     // GB9b: Prepend x
-    if (cp1_gbp_prop == .Prepend and !isBreaker(cp2, data)) return false;
+    if (cp1_gbp_prop == .prepend and !isBreaker(cp2, data)) return false;
 
     // GB12, GB13: RI x RI
-    if (cp1_gbp_prop == .Regional_Indicator and cp2_gbp_prop == .Regional_Indicator) {
+    if (cp1_gbp_prop == .regional_indicator and cp2_gbp_prop == .regional_indicator) {
         if (state.hasRegional()) {
             state.unsetRegional();
             return true;
@@ -358,42 +471,42 @@ pub fn isBreak(
     }
 
     // GB6: Hangul L x (L|V|LV|VT)
-    if (cp1_gbp_prop == .L) {
-        if (cp2_gbp_prop == .L or
-            cp2_gbp_prop == .V or
-            cp2_gbp_prop == .LV or
-            cp2_gbp_prop == .LVT) return false;
+    if (cp1_gbp_prop == .l) {
+        if (cp2_gbp_prop == .l or
+            cp2_gbp_prop == .v or
+            cp2_gbp_prop == .lv or
+            cp2_gbp_prop == .lvt) return false;
     }
 
     // GB7: Hangul (LV | V) x (V | T)
-    if (cp1_gbp_prop == .LV or cp1_gbp_prop == .V) {
-        if (cp2_gbp_prop == .V or
-            cp2_gbp_prop == .T) return false;
+    if (cp1_gbp_prop == .lv or cp1_gbp_prop == .v) {
+        if (cp2_gbp_prop == .v or
+            cp2_gbp_prop == .t) return false;
     }
 
     // GB8: Hangul (LVT | T) x T
-    if (cp1_gbp_prop == .LVT or cp1_gbp_prop == .T) {
-        if (cp2_gbp_prop == .T) return false;
+    if (cp1_gbp_prop == .lvt or cp1_gbp_prop == .t) {
+        if (cp2_gbp_prop == .t) return false;
     }
 
     // GB9c: Indic Conjunct Break
     if (state.hasIndic() and
-        cp1_indic_prop == .Consonant and
-        (cp2_indic_prop == .Extend or cp2_indic_prop == .Linker))
+        cp1_indic_prop == .consonant and
+        (cp2_indic_prop == .extend or cp2_indic_prop == .linker))
     {
         return false;
     }
 
     if (state.hasIndic() and
-        cp1_indic_prop == .Extend and
-        cp2_indic_prop == .Linker)
+        cp1_indic_prop == .extend and
+        cp2_indic_prop == .linker)
     {
         return false;
     }
 
     if (state.hasIndic() and
-        (cp1_indic_prop == .Linker or cp1_gbp_prop == .ZWJ) and
-        cp2_indic_prop == .Consonant)
+        (cp1_indic_prop == .linker or cp1_gbp_prop == .zwj) and
+        cp2_indic_prop == .consonant)
     {
         state.unsetIndic();
         return false;
