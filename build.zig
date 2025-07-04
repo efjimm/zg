@@ -78,8 +78,17 @@ pub fn build(b: *std.Build) !void {
     }
     root_module.addOptions("options", options);
 
+    const unicode_tests = b.addTest(.{
+        .root_module = b.createModule(.{ .root_source_file = b.path("src/unicode_tests.zig"), .target = target, .optimize = optimize, .imports = &.{
+            .{ .name = "zg", .module = root_module },
+        } }),
+    });
+
+    const run_unicode_tests = b.addRunArtifact(unicode_tests);
+
     const tests = b.addTest(.{ .root_module = root_module });
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run all module tests");
     test_step.dependOn(&run_tests.step);
+    test_step.dependOn(&run_unicode_tests.step);
 }

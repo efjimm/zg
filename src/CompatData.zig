@@ -51,16 +51,16 @@ pub fn init(allocator: std.mem.Allocator) !CompatData {
     errdefer allocator.free(bytes);
 
     const cps_start = @sizeOf(u21) * (header.max_cp + 1);
-    const nkfd: []Slice = @ptrCast(bytes[0..cps_start]);
+    const nfkd: []Slice = @ptrCast(bytes[0..cps_start]);
     const cps: []u21 = @ptrCast(@alignCast(bytes[cps_start..]));
-    @memset(nkfd, .{ .offset = 0, .len = 0 });
+    @memset(nfkd, .{ .offset = 0, .len = 0 });
 
     bytes_read = reader.readAll(std.mem.sliceAsBytes(cps)) catch unreachable;
     std.debug.assert(bytes_read == cps.len * @sizeOf(u21));
 
     var offset: Slice.Offset = 0;
     for (items) |item| {
-        nkfd[item.cp] = .{
+        nfkd[item.cp] = .{
             .offset = offset,
             .len = @intCast(item.len),
         };
@@ -68,7 +68,7 @@ pub fn init(allocator: std.mem.Allocator) !CompatData {
     }
 
     return .{
-        .nfkd = nkfd,
+        .nfkd = nfkd,
         .cps = cps,
     };
 }
@@ -81,6 +81,7 @@ pub fn deinit(cpdata: *const CompatData, allocator: std.mem.Allocator) void {
 
 /// Returns compatibility decomposition for `cp`.
 pub fn toNfkd(cpdata: *const CompatData, cp: u21) []u21 {
+    if (cp > cpdata.nfkd.len) return &.{};
     const slice = cpdata.nfkd[cp];
     return cpdata.cps[slice.offset..][0..slice.len];
 }
