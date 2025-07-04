@@ -223,17 +223,17 @@ pub const Iterator = struct {
         };
 
         while (self.buf[0] != null) {
-            var state: State = .reset;
-            state.setXpic();
-            state.unsetRegional();
-            state.setIndic();
+            var state: State = .{
+                .xpic = true,
+                .indic = true,
+            };
 
             if (self.data.isBreak(self.buf[0].?.code, self.buf[1].?.code, &state))
                 break;
 
             self.advanceBackward();
 
-            if (!state.hasIndic()) {
+            if (!state.indic) {
 
                 // BUF: [?Any, Extend | Linker] Consonant
                 var indic_offset: usize = self.buf[1].?.offset + self.buf[1].?.len;
@@ -250,10 +250,10 @@ pub const Iterator = struct {
                             self.advanceBackward();
 
                             const new_cp0 = self.buf[0] orelse break;
-                            state.setIndic();
+                            state.indic = true;
 
                             const has_break = self.data.isBreak(new_cp0.code, self.buf[1].?.code, &state);
-                            if (has_break or state.hasIndic())
+                            if (has_break or state.indic)
                                 break;
                         },
                         .none => {
@@ -274,7 +274,7 @@ pub const Iterator = struct {
                 }
             }
 
-            if (!state.hasXpic()) {
+            if (!state.xpic) {
                 // BUF: [?Any, ZWJ] Emoji
                 var emoji_offset = self.buf[1].?.offset + self.buf[1].?.len;
 
@@ -312,7 +312,7 @@ pub const Iterator = struct {
                 }
             }
 
-            if (state.hasRegional()) {
+            if (state.regional) {
                 var ri_count: usize = 0;
                 while (self.buf[0] != null and
                     self.data.gbp(self.buf[0].?.code) == .regional_indicator)
@@ -367,45 +367,13 @@ fn isBreaker(cp: u21, data: *const Graphemes) bool {
     return cp == '\x0d' or cp == '\x0a' or cp_gbp_prop == .control;
 }
 
-// TODO: Make this a packed struct
 // Grapheme break state.
-pub const State = struct {
-    bits: u3 = 0,
+pub const State = packed struct {
+    xpic: bool = false,
+    regional: bool = false,
+    indic: bool = false,
 
-    pub const reset: State = .{ .bits = 0 };
-
-    // Extended Pictographic (emoji)
-    fn hasXpic(self: State) bool {
-        return self.bits & 1 == 1;
-    }
-    fn setXpic(self: *State) void {
-        self.bits |= 1;
-    }
-    fn unsetXpic(self: *State) void {
-        self.bits &= ~@as(u3, 1);
-    }
-
-    // Regional Indicatior (flags)
-    fn hasRegional(self: State) bool {
-        return self.bits & 2 == 2;
-    }
-    fn setRegional(self: *State) void {
-        self.bits |= 2;
-    }
-    fn unsetRegional(self: *State) void {
-        self.bits &= ~@as(u3, 2);
-    }
-
-    // Indic Conjunct
-    fn hasIndic(self: State) bool {
-        return self.bits & 4 == 4;
-    }
-    fn setIndic(self: *State) void {
-        self.bits |= 4;
-    }
-    fn unsetIndic(self: *State) void {
-        self.bits &= ~@as(u3, 4);
-    }
+    pub const reset: State = .{};
 };
 
 /// `graphemeBreak` returns true only if a grapheme break point is required
@@ -431,9 +399,9 @@ pub fn isBreak(
     const cp2_is_emoji = data.isEmoji(cp2);
 
     // GB11: Emoji Extend* ZWJ x Emoji
-    if (!state.hasXpic() and cp1_is_emoji) state.setXpic();
+    if (!state.xpic and cp1_is_emoji) state.xpic = true;
     // GB9c: Indic Conjunct Break
-    if (!state.hasIndic() and cp1_indic_prop == .consonant) state.setIndic();
+    if (!state.indic and cp1_indic_prop == .consonant) state.indic = true;
 
     // GB3: CR x LF
     if (cp1 == '\r' and cp2 == '\n') return false;
@@ -442,11 +410,11 @@ pub fn isBreak(
     if (isBreaker(cp1, data)) return true;
 
     // GB11: Emoji Extend* ZWJ x Emoji
-    if (state.hasXpic() and
+    if (state.xpic and
         cp1_gbp_prop == .zwj and
         cp2_is_emoji)
     {
-        state.unsetXpic();
+        state.xpic = false;
         return false;
     }
 
@@ -461,27 +429,22 @@ pub fn isBreak(
 
     // GB12, GB13: RI x RI
     if (cp1_gbp_prop == .regional_indicator and cp2_gbp_prop == .regional_indicator) {
-        if (state.hasRegional()) {
-            state.unsetRegional();
-            return true;
-        } else {
-            state.setRegional();
-            return false;
-        }
+        state.regional = !state.regional;
+        return !state.regional;
     }
 
     // GB6: Hangul L x (L|V|LV|VT)
     if (cp1_gbp_prop == .l) {
-        if (cp2_gbp_prop == .l or
-            cp2_gbp_prop == .v or
-            cp2_gbp_prop == .lv or
-            cp2_gbp_prop == .lvt) return false;
+        switch (cp2_gbp_prop) {
+            .l, .v, .lv, .lvt => return false,
+            else => {},
+        }
     }
 
     // GB7: Hangul (LV | V) x (V | T)
     if (cp1_gbp_prop == .lv or cp1_gbp_prop == .v) {
-        if (cp2_gbp_prop == .v or
-            cp2_gbp_prop == .t) return false;
+        if (cp2_gbp_prop == .v or cp2_gbp_prop == .t)
+            return false;
     }
 
     // GB8: Hangul (LVT | T) x T
@@ -490,25 +453,22 @@ pub fn isBreak(
     }
 
     // GB9c: Indic Conjunct Break
-    if (state.hasIndic() and
+    if (state.indic and
         cp1_indic_prop == .consonant and
         (cp2_indic_prop == .extend or cp2_indic_prop == .linker))
     {
         return false;
     }
 
-    if (state.hasIndic() and
-        cp1_indic_prop == .extend and
-        cp2_indic_prop == .linker)
-    {
+    if (state.indic and cp1_indic_prop == .extend and cp2_indic_prop == .linker) {
         return false;
     }
 
-    if (state.hasIndic() and
+    if (state.indic and
         (cp1_indic_prop == .linker or cp1_gbp_prop == .zwj) and
         cp2_indic_prop == .consonant)
     {
-        state.unsetIndic();
+        state.indic = false;
         return false;
     }
 
