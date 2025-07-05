@@ -110,47 +110,75 @@ test "codePointWidth" {
     try testing.expectEqual(2, dw.codePointWidth('统'));
 }
 
+pub const StrWidthOptions = struct {
+    max_width: usize = std.math.maxInt(usize),
+};
+
 /// strWidth returns the total display width of `str` as the number of cells
 /// required in a fixed-pitch font (i.e. a terminal screen).
-pub fn strWidth(dw: *const DisplayWidth, str: []const u8) usize {
+pub fn strWidth(
+    dw: *const DisplayWidth,
+    str: []const u8,
+    /// Width calculation will stop after `max_width` is exceeded reached.
+    opts: StrWidthOptions,
+) struct {
+    width: usize,
+    exceded_max_width: bool,
+} {
     assert(dw.isInitialized());
+    const max_width = opts.max_width;
     var total: isize = 0;
 
     // ASCII fast path
     if (ascii.isAsciiOnly(str)) {
-        for (str) |b| total += dw.codePointWidth(b);
-        return @intCast(@max(0, total));
+        const exceded_max_width =
+            for (str) |b| {
+                const w = dw.codePointWidth(b);
+                if (total + w > max_width) break true;
+                total += w;
+            } else false;
+
+        return .{
+            .width = @intCast(@max(0, total)),
+            .exceded_max_width = exceded_max_width,
+        };
     }
 
     var giter = dw.graphemes.iterator(str);
 
-    while (giter.next()) |gc| {
-        var cp_iter: CodePointIterator = .init(gc.bytes(str));
-        var gc_total: isize = 0;
+    const exceded_max_width =
+        while (giter.next()) |gc| {
+            var cp_iter: CodePointIterator = .init(gc.bytes(str));
+            var gc_total: isize = 0;
 
-        while (cp_iter.next()) |cp| {
-            var w = dw.codePointWidth(cp.code);
+            while (cp_iter.next()) |cp| {
+                var w = dw.codePointWidth(cp.code);
 
-            if (w != 0) {
-                // Handle text emoji sequence.
-                if (cp_iter.next()) |ncp| {
-                    // emoji text sequence.
-                    if (ncp.code == 0xFE0E) w = 1;
-                    if (ncp.code == 0xFE0F) w = 2;
-                }
+                if (w != 0) {
+                    // Handle text emoji sequence.
+                    if (cp_iter.next()) |ncp| {
+                        // emoji text sequence.
+                        if (ncp.code == 0xFE0E) w = 1;
+                        if (ncp.code == 0xFE0F) w = 2;
+                    }
 
-                // Only adding width of first non-zero-width code point.
-                if (gc_total == 0) {
-                    gc_total = w;
-                    break;
+                    // Only adding width of first non-zero-width code point.
+                    if (gc_total == 0) {
+                        gc_total = w;
+                        break;
+                    }
                 }
             }
-        }
 
-        total += gc_total;
-    }
+            if (total + gc_total > max_width)
+                break true;
+            total += gc_total;
+        } else false;
 
-    return @intCast(@max(0, total));
+    return .{
+        .width = @intCast(@max(0, total)),
+        .exceded_max_width = exceded_max_width,
+    };
 }
 
 test "strWidth" {
@@ -158,36 +186,36 @@ test "strWidth" {
     defer dw.deinit(testing.allocator);
     const c0 = options.c0_width orelse 0;
 
-    try testing.expectEqual(5, dw.strWidth("Hello\r\n"));
-    try testing.expectEqual(1, dw.strWidth("\u{0065}\u{0301}"));
-    try testing.expectEqual(2, dw.strWidth("\u{1F476}\u{1F3FF}\u{0308}\u{200D}\u{1F476}\u{1F3FF}"));
-    try testing.expectEqual(8, dw.strWidth("Hello 😊"));
-    try testing.expectEqual(8, dw.strWidth("Héllo 😊"));
-    try testing.expectEqual(8, dw.strWidth("Héllo :)"));
-    try testing.expectEqual(8, dw.strWidth("Héllo 🇪🇸"));
-    try testing.expectEqual(2, dw.strWidth("\u{26A1}")); // Lone emoji
-    try testing.expectEqual(1, dw.strWidth("\u{26A1}\u{FE0E}")); // Text sequence
-    try testing.expectEqual(2, dw.strWidth("\u{26A1}\u{FE0F}")); // Presentation sequence
-    try testing.expectEqual(1, dw.strWidth("\u{2764}")); // Default text presentation
-    try testing.expectEqual(1, dw.strWidth("\u{2764}\u{FE0E}")); // Default text presentation with VS15 selector
-    try testing.expectEqual(2, dw.strWidth("\u{2764}\u{FE0F}")); // Default text presentation with VS16 selector
+    try testing.expectEqual(5, dw.strWidth("Hello\r\n", .{}).width);
+    try testing.expectEqual(1, dw.strWidth("\u{0065}\u{0301}", .{}).width);
+    try testing.expectEqual(2, dw.strWidth("\u{1F476}\u{1F3FF}\u{0308}\u{200D}\u{1F476}\u{1F3FF}", .{}).width);
+    try testing.expectEqual(8, dw.strWidth("Hello 😊", .{}).width);
+    try testing.expectEqual(8, dw.strWidth("Héllo 😊", .{}).width);
+    try testing.expectEqual(8, dw.strWidth("Héllo :)", .{}).width);
+    try testing.expectEqual(8, dw.strWidth("Héllo 🇪🇸", .{}).width);
+    try testing.expectEqual(2, dw.strWidth("\u{26A1}", .{}).width); // Lone emoji
+    try testing.expectEqual(1, dw.strWidth("\u{26A1}\u{FE0E}", .{}).width); // Text sequence
+    try testing.expectEqual(2, dw.strWidth("\u{26A1}\u{FE0F}", .{}).width); // Presentation sequence
+    try testing.expectEqual(1, dw.strWidth("\u{2764}", .{}).width); // Default text presentation
+    try testing.expectEqual(1, dw.strWidth("\u{2764}\u{FE0E}", .{}).width); // Default text presentation with VS15 selector
+    try testing.expectEqual(2, dw.strWidth("\u{2764}\u{FE0F}", .{}).width); // Default text presentation with VS16 selector
     const expect_bs: usize = if (c0 == 0) 0 else 1 + c0;
-    try testing.expectEqual(expect_bs, dw.strWidth("A\x08")); // Backspace
-    try testing.expectEqual(expect_bs, dw.strWidth("\x7FA")); // DEL
+    try testing.expectEqual(expect_bs, dw.strWidth("A\x08", .{}).width); // Backspace
+    try testing.expectEqual(expect_bs, dw.strWidth("\x7FA", .{}).width); // DEL
     const expect_long_del: usize = if (c0 == 0) 0 else 1 + (c0 * 3);
-    try testing.expectEqual(expect_long_del, dw.strWidth("\x7FA\x08\x08")); // never less than 0
+    try testing.expectEqual(expect_long_del, dw.strWidth("\x7FA\x08\x08", .{}).width); // never less than 0
 
     // wcwidth Python lib tests. See: https://github.com/jquast/wcwidth/blob/master/tests/test_core.py
     const empty = "";
-    try testing.expectEqual(0, dw.strWidth(empty));
+    try testing.expectEqual(0, dw.strWidth(empty, .{}).width);
     const with_null = "hello\x00world";
-    try testing.expectEqual(10 + c0, dw.strWidth(with_null));
+    try testing.expectEqual(10 + c0, dw.strWidth(with_null, .{}).width);
     const hello_jp = "コンニチハ, セカイ!";
-    try testing.expectEqual(19, dw.strWidth(hello_jp));
+    try testing.expectEqual(19, dw.strWidth(hello_jp, .{}).width);
     const control = "\x1b[0m";
-    try testing.expectEqual(3 + c0, dw.strWidth(control));
+    try testing.expectEqual(3 + c0, dw.strWidth(control, .{}).width);
     const balinese = "\u{1B13}\u{1B28}\u{1B2E}\u{1B44}";
-    try testing.expectEqual(3, dw.strWidth(balinese));
+    try testing.expectEqual(3, dw.strWidth(balinese, .{}).width);
 
     // These commented out tests require a new specification for complex scripts.
     // See: https://www.unicode.org/L2/L2023/23107-terminal-suppt.pdf
@@ -201,17 +229,17 @@ test "strWidth" {
     // try testing.expectEqual(@as(usize, 3), strWidth(kannada_1));
     // The following passes but as a mere coincidence.
     const kannada_2 = "\u{0cb0}\u{0cbc}\u{0ccd}\u{0c9a}";
-    try testing.expectEqual(2, dw.strWidth(kannada_2));
+    try testing.expectEqual(2, dw.strWidth(kannada_2, .{}).width);
 
     // From Rust https://github.com/jameslanska/unicode-display-width
-    try testing.expectEqual(15, dw.strWidth("🔥🗡🍩👩🏻‍🚀⏰💃🏼🔦👍🏻"));
-    try testing.expectEqual(2, dw.strWidth("🦀"));
-    try testing.expectEqual(2, dw.strWidth("👨‍👩‍👧‍👧"));
-    try testing.expectEqual(2, dw.strWidth("👩‍🔬"));
-    try testing.expectEqual(9, dw.strWidth("sane text"));
-    try testing.expectEqual(9, dw.strWidth("Ẓ̌á̲l͔̝̞̄̑͌g̖̘̘̔̔͢͞͝o̪̔T̢̙̫̈̍͞e̬͈͕͌̏͑x̺̍ṭ̓̓ͅ"));
-    try testing.expectEqual(17, dw.strWidth("슬라바 우크라이나"));
-    try testing.expectEqual(1, dw.strWidth("\u{378}"));
+    try testing.expectEqual(15, dw.strWidth("🔥🗡🍩👩🏻‍🚀⏰💃🏼🔦👍🏻", .{}).width);
+    try testing.expectEqual(2, dw.strWidth("🦀", .{}).width);
+    try testing.expectEqual(2, dw.strWidth("👨‍👩‍👧‍👧", .{}).width);
+    try testing.expectEqual(2, dw.strWidth("👩‍🔬", .{}).width);
+    try testing.expectEqual(9, dw.strWidth("sane text", .{}).width);
+    try testing.expectEqual(9, dw.strWidth("Ẓ̌á̲l͔̝̞̄̑͌g̖̘̘̔̔͢͞͝o̪̔T̢̙̫̈̍͞e̬͈͕͌̏͑x̺̍ṭ̓̓ͅ", .{}).width);
+    try testing.expectEqual(17, dw.strWidth("슬라바 우크라이나", .{}).width);
+    try testing.expectEqual(1, dw.strWidth("\u{378}", .{}).width);
 }
 
 /// centers `str` in a new string of width `total_width` (in display cells) using `pad` as padding.
@@ -226,11 +254,11 @@ pub fn center(
     pad: []const u8,
 ) ![]u8 {
     assert(dw.isInitialized());
-    const str_width = dw.strWidth(str);
+    const str_width = dw.strWidth(str, .{}).width;
     if (str_width > total_width) return error.StrTooLong;
     if (str_width == total_width) return try allocator.dupe(u8, str);
 
-    const pad_width = dw.strWidth(pad);
+    const pad_width = dw.strWidth(pad, .{}).width;
     if (pad_width > total_width or str_width + pad_width > total_width) return error.PadTooLong;
 
     const margin_width = @divFloor((total_width - str_width), 2);
@@ -313,10 +341,10 @@ pub fn padLeft(
     pad: []const u8,
 ) ![]u8 {
     assert(dw.isInitialized());
-    const str_width = dw.strWidth(str);
+    const str_width = dw.strWidth(str, .{}).width;
     if (str_width > total_width) return error.StrTooLong;
 
-    const pad_width = dw.strWidth(pad);
+    const pad_width = dw.strWidth(pad, .{}).width;
     if (pad_width > total_width or str_width + pad_width > total_width) return error.PadTooLong;
 
     const margin_width = total_width - str_width;
@@ -362,10 +390,10 @@ pub fn padRight(
     pad: []const u8,
 ) ![]u8 {
     assert(dw.isInitialized());
-    const str_width = dw.strWidth(str);
+    const str_width = dw.strWidth(str, .{}).width;
     if (str_width > total_width) return error.StrTooLong;
 
-    const pad_width = dw.strWidth(pad);
+    const pad_width = dw.strWidth(pad, .{}).width;
     if (pad_width > total_width or str_width + pad_width > total_width) return error.PadTooLong;
 
     const margin_width = total_width - str_width;
@@ -425,7 +453,7 @@ pub fn wrap(
         while (word_iter.next()) |word| {
             try result.appendSlice(word);
             try result.append(' ');
-            line_width += dw.strWidth(word) + 1;
+            line_width += dw.strWidth(word, .{}).width + 1;
 
             if (line_width > columns or columns - line_width <= threshold) {
                 try result.append('\n');
