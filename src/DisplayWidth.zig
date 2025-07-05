@@ -132,7 +132,7 @@ pub fn strWidth(dw: *const DisplayWidth, str: []const u8, opts: StrWidthOptions)
     var total: isize = 0;
 
     // ASCII fast path
-    if (ascii.isAsciiOnly(str)) {
+    if (str.len < 4096 and ascii.isAsciiOnly(str)) {
         const len =
             for (str, 0..) |b, i| {
                 const w = dw.codePointWidth(b);
