@@ -114,70 +114,71 @@ pub const StrWidthOptions = struct {
     max_width: usize = std.math.maxInt(usize),
 };
 
-/// strWidth returns the total display width of `str` as the number of cells
-/// required in a fixed-pitch font (i.e. a terminal screen).
-pub fn strWidth(
-    dw: *const DisplayWidth,
-    str: []const u8,
-    /// Width calculation will stop after `max_width` is exceeded reached.
-    opts: StrWidthOptions,
-) struct {
+pub const StrWidthResult = struct {
+    /// Width of the given string, capped at `max_width`.
     width: usize,
-    exceded_max_width: bool,
-} {
+    /// Byte length of the string. If the width of the string does not exceed `max_width`, this is
+    /// the same as `str.len`. If the string excedes `max_width`, this is the length of the string
+    /// truncated to fit within `max_width`. This truncation happens on grapheme cluster boundaries.
+    len: usize,
+};
+
+/// strWidth returns the total display width of `str` as the number of cells required in a
+/// fixed-pitch font (i.e. a terminal screen). Note that the display width and actual width of
+/// certain graphemes may differ between terminal emulators
+pub fn strWidth(dw: *const DisplayWidth, str: []const u8, opts: StrWidthOptions) StrWidthResult {
     assert(dw.isInitialized());
     const max_width = opts.max_width;
     var total: isize = 0;
 
     // ASCII fast path
     if (ascii.isAsciiOnly(str)) {
-        const exceded_max_width =
-            for (str) |b| {
+        const len =
+            for (str, 0..) |b, i| {
                 const w = dw.codePointWidth(b);
-                if (total + w > max_width) break true;
+                if (total + w > max_width) break i;
                 total += w;
-            } else false;
+            } else str.len;
 
         return .{
             .width = @intCast(@max(0, total)),
-            .exceded_max_width = exceded_max_width,
+            .len = len,
         };
     }
 
     var giter = dw.graphemes.iterator(str);
 
-    const exceded_max_width =
-        while (giter.next()) |gc| {
-            var cp_iter: CodePointIterator = .init(gc.bytes(str));
-            var gc_total: isize = 0;
+    const len = while (giter.next()) |gc| {
+        var cp_iter: CodePointIterator = .init(gc.bytes(str));
+        var gc_total: isize = 0;
 
-            while (cp_iter.next()) |cp| {
-                var w = dw.codePointWidth(cp.code);
+        while (cp_iter.next()) |cp| {
+            var w = dw.codePointWidth(cp.code);
 
-                if (w != 0) {
-                    // Handle text emoji sequence.
-                    if (cp_iter.next()) |ncp| {
-                        // emoji text sequence.
-                        if (ncp.code == 0xFE0E) w = 1;
-                        if (ncp.code == 0xFE0F) w = 2;
-                    }
+            if (w != 0) {
+                // Handle text emoji sequence.
+                if (cp_iter.next()) |ncp| {
+                    // emoji text sequence.
+                    if (ncp.code == 0xFE0E) w = 1;
+                    if (ncp.code == 0xFE0F) w = 2;
+                }
 
-                    // Only adding width of first non-zero-width code point.
-                    if (gc_total == 0) {
-                        gc_total = w;
-                        break;
-                    }
+                // Only adding width of first non-zero-width code point.
+                if (gc_total == 0) {
+                    gc_total = w;
+                    break;
                 }
             }
+        }
 
-            if (total + gc_total > max_width)
-                break true;
-            total += gc_total;
-        } else false;
+        if (total + gc_total > max_width)
+            break gc.offset;
+        total += gc_total;
+    } else str.len;
 
     return .{
         .width = @intCast(@max(0, total)),
-        .exceded_max_width = exceded_max_width,
+        .len = len,
     };
 }
 
