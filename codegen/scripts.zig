@@ -36,7 +36,7 @@ pub fn main() !void {
     const scripts_data_path = unicode_data_path ++ "/Scripts.txt";
     var in_file = try std.fs.cwd().openFile(scripts_data_path, .{});
     defer in_file.close();
-    var in_buf = std.io.bufferedReader(in_file.reader());
+    var in_buf = std.io.bufferedReader(in_file.deprecatedReader());
     const in_reader = in_buf.reader();
 
     while (try in_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
@@ -127,7 +127,7 @@ pub fn main() !void {
     defer out_file.close();
     var out_comp = try std.compress.flate.deflate.compressor(
         .raw,
-        out_file.writer(),
+        out_file.deprecatedWriter(),
         .{ .level = .best },
     );
     const writer = out_comp.writer();

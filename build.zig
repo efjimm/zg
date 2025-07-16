@@ -23,8 +23,9 @@ pub fn build(b: *std.Build) !void {
     // Display width
     const cjk = b.option(bool, "cjk", "Ambiguous code points are wide (display width: 2).") orelse false;
     const options = b.addOptions();
-    try options.contents.writer().print(
-        "pub const target_endian = @import(\"std\").{};\n",
+    try options.contents.print(
+        options.step.owner.allocator,
+        "pub const target_endian = @import(\"std\").builtin.Endian{};\n",
         .{target.result.cpu.arch.endian()},
     );
     options.addOption(bool, "cjk", cjk);
@@ -47,9 +48,11 @@ pub fn build(b: *std.Build) !void {
 
     const print_sizes = b.addExecutable(.{
         .name = "print-sizes",
-        .root_source_file = b.path("src/sizes.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/sizes.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
     const run_print_sizes = b.addRunArtifact(print_sizes);
     b.step("sizes", "").dependOn(&run_print_sizes.step);
@@ -66,9 +69,11 @@ pub fn build(b: *std.Build) !void {
         const name = comptime std.fs.path.stem(path);
         const gen_exe = b.addExecutable(.{
             .name = name,
-            .root_source_file = b.path(path),
-            .target = b.graph.host,
-            .optimize = .Debug,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(path),
+                .target = b.graph.host,
+                .optimize = .Debug,
+            }),
         });
         gen_exe.root_module.addOptions("options", options);
         const run_gen_exe = b.addRunArtifact(gen_exe);
@@ -91,4 +96,8 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run all module tests");
     test_step.dependOn(&run_tests.step);
     test_step.dependOn(&run_unicode_tests.step);
+
+    const check_step = b.step("check", "");
+    check_step.dependOn(&tests.step);
+    check_step.dependOn(&unicode_tests.step);
 }

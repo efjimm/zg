@@ -35,7 +35,7 @@ pub fn fromFile(
     // Process DerivedNumericType.txt
     const in_file = try std.fs.cwd().openFile(filepath, .{});
     defer in_file.close();
-    var in_buf = std.io.bufferedReader(in_file.reader());
+    var in_buf = std.io.bufferedReader(in_file.deprecatedReader());
     const in_reader = in_buf.reader();
 
     while (try in_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
@@ -156,7 +156,7 @@ pub fn main() !void {
     const compressor = std.compress.flate.deflate.compressor;
     var out_file = try std.fs.cwd().createFile(output_path, .{});
     defer out_file.close();
-    var out_comp = try compressor(.raw, out_file.writer(), .{ .level = .best });
+    var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
     const writer = out_comp.writer();
 
     const endian = @import("options").target_endian;

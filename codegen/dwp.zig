@@ -38,7 +38,7 @@ pub fn main() !void {
     const deaw_data_path = unicode_data_path ++ "/extracted/DerivedEastAsianWidth.txt";
     var deaw_file = try std.fs.cwd().openFile(deaw_data_path, .{});
     defer deaw_file.close();
-    var deaw_buf = std.io.bufferedReader(deaw_file.reader());
+    var deaw_buf = std.io.bufferedReader(deaw_file.deprecatedReader());
     const deaw_reader = deaw_buf.reader();
 
     while (try deaw_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
@@ -96,7 +96,7 @@ pub fn main() !void {
     const dgc_data_path = unicode_data_path ++ "/extracted/DerivedGeneralCategory.txt";
     var dgc_file = try std.fs.cwd().openFile(dgc_data_path, .{});
     defer dgc_file.close();
-    var dgc_buf = std.io.bufferedReader(dgc_file.reader());
+    var dgc_buf = std.io.bufferedReader(dgc_file.deprecatedReader());
     const dgc_reader = dgc_buf.reader();
 
     while (try dgc_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
@@ -233,7 +233,7 @@ pub fn main() !void {
     const compressor = std.compress.flate.deflate.compressor;
     var out_file = try std.fs.cwd().createFile(output_path, .{});
     defer out_file.close();
-    var out_comp = try compressor(.raw, out_file.writer(), .{ .level = .best });
+    var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
     const writer = out_comp.writer();
 
     const endian = @import("options").target_endian;

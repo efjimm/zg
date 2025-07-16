@@ -68,7 +68,7 @@ pub fn main() !void {
     const indic_data_path = unicode_data_path ++ "/DerivedCoreProperties.txt";
     var indic_file = try std.fs.cwd().openFile(indic_data_path, .{});
     defer indic_file.close();
-    var indic_buf = std.io.bufferedReader(indic_file.reader());
+    var indic_buf = std.io.bufferedReader(indic_file.deprecatedReader());
     const indic_reader = indic_buf.reader();
 
     while (try indic_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
@@ -108,7 +108,7 @@ pub fn main() !void {
     const gbp_data_path = unicode_data_path ++ "/auxiliary/GraphemeBreakProperty.txt";
     var gbp_file = try std.fs.cwd().openFile(gbp_data_path, .{});
     defer gbp_file.close();
-    var gbp_buf = std.io.bufferedReader(gbp_file.reader());
+    var gbp_buf = std.io.bufferedReader(gbp_file.deprecatedReader());
     const gbp_reader = gbp_buf.reader();
 
     while (try gbp_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
@@ -147,7 +147,7 @@ pub fn main() !void {
     const emoji_data_path = unicode_data_path ++ "/emoji/emoji-data.txt";
     var emoji_file = try std.fs.cwd().openFile(emoji_data_path, .{});
     defer emoji_file.close();
-    var emoji_buf = std.io.bufferedReader(emoji_file.reader());
+    var emoji_buf = std.io.bufferedReader(emoji_file.deprecatedReader());
     const emoji_reader = emoji_buf.reader();
 
     while (try emoji_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
@@ -234,7 +234,7 @@ pub fn main() !void {
     const compressor = std.compress.flate.deflate.compressor;
     var out_file = try std.fs.cwd().createFile(output_path, .{});
     defer out_file.close();
-    var out_comp = try compressor(.raw, out_file.writer(), .{ .level = .best });
+    var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
     const writer = out_comp.writer();
 
     const endian = @import("options").target_endian;

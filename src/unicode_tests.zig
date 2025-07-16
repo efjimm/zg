@@ -49,7 +49,7 @@ test "Unicode normalization tests" {
 
     var file = try fs.cwd().openFile("data/unicode/NormalizationTest.txt", .{});
     defer file.close();
-    var buf_reader = io.bufferedReader(file.reader());
+    var buf_reader = io.bufferedReader(file.deprecatedReader());
     const input_stream = buf_reader.reader();
 
     var line_no: usize = 0;
@@ -159,7 +159,7 @@ test "Segmentation GraphemeIterator" {
     const allocator = std.testing.allocator;
     var file = try std.fs.cwd().openFile("data/unicode/auxiliary/GraphemeBreakTest.txt", .{});
     defer file.close();
-    var buf_reader = std.io.bufferedReader(file.reader());
+    var buf_reader = std.io.bufferedReader(file.deprecatedReader());
     var input_stream = buf_reader.reader();
 
     const data = try Graphemes.init(allocator);
@@ -224,7 +224,7 @@ test "Segmentation ReverseGraphemeIterator" {
     const allocator = std.testing.allocator;
     var file = try std.fs.cwd().openFile("data/unicode/auxiliary/GraphemeBreakTest.txt", .{});
     defer file.close();
-    var buf_reader = std.io.bufferedReader(file.reader());
+    var buf_reader = std.io.bufferedReader(file.deprecatedReader());
     var input_stream = buf_reader.reader();
 
     const data = try Graphemes.init(allocator);

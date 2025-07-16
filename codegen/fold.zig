@@ -12,7 +12,7 @@ pub fn main() !void {
     const props_data_path = unicode_data_path ++ "/DerivedCoreProperties.txt";
     var props_file = try std.fs.cwd().openFile(props_data_path, .{});
     defer props_file.close();
-    var props_buf = std.io.bufferedReader(props_file.reader());
+    var props_buf = std.io.bufferedReader(props_file.deprecatedReader());
     const props_reader = props_buf.reader();
 
     var props_map = std.AutoHashMap(u21, void).init(allocator);
@@ -60,7 +60,7 @@ pub fn main() !void {
     const casefolding_data_path = unicode_data_path ++ "/CaseFolding.txt";
     var cp_file = try std.fs.cwd().openFile(casefolding_data_path, .{});
     defer cp_file.close();
-    var cp_buf = std.io.bufferedReader(cp_file.reader());
+    var cp_buf = std.io.bufferedReader(cp_file.deprecatedReader());
     const cp_reader = cp_buf.reader();
 
     while (try cp_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
@@ -227,7 +227,7 @@ pub fn main() !void {
         const compressor = std.compress.flate.deflate.compressor;
         var out_file = try std.fs.cwd().createFile(output_path, .{});
         defer out_file.close();
-        var out_comp = try compressor(.raw, out_file.writer(), .{ .level = .best });
+        var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
         const writer = out_comp.writer();
 
         const endian = @import("options").target_endian;
