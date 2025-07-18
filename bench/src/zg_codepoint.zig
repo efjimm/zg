@@ -18,10 +18,13 @@ pub fn main() !void {
     );
     defer allocator.free(input);
 
-    var iter = code_point.Iterator{ .bytes = input };
+    var iter: code_point.Iterator = .init(input);
     var result: usize = 0;
     var timer = try std.time.Timer.start();
 
     while (iter.next()) |_| result += 1;
-    std.debug.print("zg CodePointIterator: result: {}, took: {}\n", .{ result, std.fmt.fmtDuration(timer.lap()) });
+    std.debug.print("zg CodePointIterator: result: {}, took: {D}\n", .{
+        result,
+        timer.lap(),
+    });
 }

@@ -25,8 +25,11 @@ pub fn main() !void {
     var timer = try std.time.Timer.start();
 
     while (iter.next()) |line| {
-        const width = display_width.strWidth(line);
-        result += width;
+        const res = display_width.strWidth(line, .{});
+        result += res.width;
     }
-    std.debug.print("zg DisplayWidth.strWidth: result: {}, took: {}\n", .{ result, std.fmt.fmtDuration(timer.lap()) });
+    std.debug.print("zg DisplayWidth.strWidth: result: {}, took: {D}\n", .{
+        result,
+        timer.lap(),
+    });
 }

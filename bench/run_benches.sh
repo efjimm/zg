@@ -1,7 +1,7 @@
 #!/bin/sh
 
-if ! zig build -Doptimize=ReleaseSafe; then
-  exit 1
+if ! zig build -Doptimize=ReleaseFast; then
+	exit 1
 fi
 
 cd zig-out/bin/

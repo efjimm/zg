@@ -29,7 +29,10 @@ pub fn main() !void {
         const lower = try case.toLowerStr(allocator, line);
         result += upper.len + lower.len;
     }
-    std.debug.print("zg toUpperStr/toLowerStr: result: {}, took: {}\n", .{ result, std.fmt.fmtDuration(timer.lap()) });
+    std.debug.print("zg toUpperStr/toLowerStr: result: {}, took: {D}\n", .{
+        result,
+        timer.lap(),
+    });
 
     result = 0;
     iter.reset();
@@ -39,5 +42,8 @@ pub fn main() !void {
         if (case.isUpperStr(line)) result += 1;
         if (case.isLowerStr(line)) result += 2;
     }
-    std.debug.print("zg isUpperStr/isLowerStr: result: {}, took: {}\n", .{ result, std.fmt.fmtDuration(timer.lap()) });
+    std.debug.print("zg isUpperStr/isLowerStr: result: {}, took: {D}\n", .{
+        result,
+        timer.lap(),
+    });
 }

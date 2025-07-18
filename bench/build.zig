@@ -15,53 +15,9 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const ziglyph = b.dependency("ziglyph", .{});
     const zg = b.dependency("zg", .{});
 
     const benches = [_]Bench{
-        .{
-            .name = "ziglyph_normalizer",
-            .src = "src/ziglyph_normalizer.zig",
-            .imports = &.{
-                .{ .name = "ziglyph", .module = ziglyph.module("ziglyph") },
-            },
-        },
-        .{
-            .name = "ziglyph_caseless",
-            .src = "src/ziglyph_caseless.zig",
-            .imports = &.{
-                .{ .name = "ziglyph", .module = ziglyph.module("ziglyph") },
-            },
-        },
-        .{
-            .name = "ziglyph_codepoint",
-            .src = "src/ziglyph_codepoint.zig",
-            .imports = &.{
-                .{ .name = "ziglyph", .module = ziglyph.module("ziglyph") },
-            },
-        },
-        .{
-            .name = "ziglyph_grapheme",
-            .src = "src/ziglyph_grapheme.zig",
-            .imports = &.{
-                .{ .name = "ziglyph", .module = ziglyph.module("ziglyph") },
-            },
-        },
-        .{
-            .name = "ziglyph_width",
-            .src = "src/ziglyph_width.zig",
-            .imports = &.{
-                .{ .name = "ziglyph", .module = ziglyph.module("ziglyph") },
-            },
-        },
-        .{
-            .name = "ziglyph_case",
-            .src = "src/ziglyph_case.zig",
-            .imports = &.{
-                .{ .name = "ziglyph", .module = ziglyph.module("ziglyph") },
-            },
-        },
-
         .{
             .name = "zg_normalize",
             .src = "src/zg_normalize.zig",
@@ -109,10 +65,12 @@ pub fn build(b: *std.Build) !void {
     for (&benches) |bench| {
         const exe = b.addExecutable(.{
             .name = bench.name,
-            .root_source_file = b.path(bench.src),
-            .target = target,
-            .optimize = optimize,
-            .strip = true,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(bench.src),
+                .target = target,
+                .optimize = optimize,
+                .strip = true,
+            }),
         });
 
         for (bench.imports) |import| {
@@ -124,9 +82,11 @@ pub fn build(b: *std.Build) !void {
 
     // Tests
     const unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/tests.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tests.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     unit_tests.root_module.addImport("zg", zg.module("zg"));
 

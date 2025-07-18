@@ -23,5 +23,8 @@ pub fn main() !void {
     var timer = try std.time.Timer.start();
 
     while (iter.next()) |_| result += 1;
-    std.debug.print("zg Graphemes.Iterator: result: {}, took: {}\n", .{ result, std.fmt.fmtDuration(timer.lap()) });
+    std.debug.print("zg Graphemes.Iterator: result: {}, took: {D}\n", .{
+        result,
+        timer.lap(),
+    });
 }
