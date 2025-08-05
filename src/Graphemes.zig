@@ -77,7 +77,7 @@ pub fn isEmoji(graphemes: *const Graphemes, cp: u21) bool {
 
 pub fn iterator(graphemes: *const Graphemes, string: []const u8) Iterator {
     assert(graphemes.isInitialized());
-    return Iterator.init(string, graphemes);
+    return .init(string, graphemes);
 }
 
 /// Indic syllable type.
@@ -127,6 +127,7 @@ pub const Iterator = struct {
     cp_iter: CodePointIterator,
     data: *const Graphemes,
     pending: Pending = .{ .none = {} },
+    state: State = .reset,
 
     pub const Pending = union(enum) {
         none,
@@ -141,6 +142,13 @@ pub const Iterator = struct {
         assert(data.isInitialized());
         var iter: Iterator = .{ .cp_iter = .init(str), .data = data };
         iter.advanceForward();
+        return iter;
+    }
+
+    /// Initialize the iterator with an initial grapheme breaking state.
+    pub fn initState(str: []const u8, state: State, data: *const Graphemes) Iterator {
+        var iter: Iterator = .init(str, data);
+        iter.state = state;
         return iter;
     }
 
@@ -164,6 +172,12 @@ pub const Iterator = struct {
     }
 
     pub fn next(self: *Iterator) ?Grapheme {
+        self.state = .reset;
+        return self.nextState();
+    }
+
+    /// Returns the next grapheme cluster using the current state.
+    pub fn nextState(self: *Iterator) ?Grapheme {
         assert(self.data.isInitialized());
         self.advanceForward();
 
@@ -179,9 +193,8 @@ pub const Iterator = struct {
 
         const gc_start = cp0.offset;
         var gc_len: usize = cp0.len;
-        var state: State = .reset;
 
-        while (!self.data.isBreak(cp0.code, code1, &state)) : (gc_len += cp0.len) {
+        while (!self.data.isBreak(cp0.code, code1, &self.state)) : (gc_len += cp0.len) {
             self.advanceForward();
             cp0 = self.buf[0] orelse break;
             code1 = if (self.buf[1]) |cp| cp.code else 0;

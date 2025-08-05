@@ -133,6 +133,7 @@ pub fn strWidth(dw: *const DisplayWidth, str: []const u8, opts: StrWidthOptions)
 
     // ASCII fast path
     if (str.len < 4096 and ascii.isAsciiOnly(str)) {
+        @branchHint(.likely);
         const len =
             for (str, 0..) |b, i| {
                 const w = dw.codePointWidth(b);
@@ -150,26 +151,22 @@ pub fn strWidth(dw: *const DisplayWidth, str: []const u8, opts: StrWidthOptions)
 
     const len = while (giter.next()) |gc| {
         var cp_iter: CodePointIterator = .init(gc.bytes(str));
-        var gc_total: isize = 0;
 
-        while (cp_iter.next()) |cp| {
-            var w = dw.codePointWidth(cp.code);
+        const gc_total = while (cp_iter.next()) |cp| {
+            const w = dw.codePointWidth(cp.code);
 
             if (w != 0) {
                 // Handle text emoji sequence.
                 if (cp_iter.next()) |ncp| {
                     // emoji text sequence.
-                    if (ncp.code == 0xFE0E) w = 1;
-                    if (ncp.code == 0xFE0F) w = 2;
+                    if (ncp.code == 0xFE0E) break 1;
+                    if (ncp.code == 0xFE0F) break 2;
                 }
 
                 // Only adding width of first non-zero-width code point.
-                if (gc_total == 0) {
-                    gc_total = w;
-                    break;
-                }
+                break w;
             }
-        }
+        } else 0;
 
         if (total + gc_total > max_width)
             break gc.offset;
