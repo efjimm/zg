@@ -189,7 +189,7 @@ pub fn main() !void {
     defer stage3.deinit();
     var stage3_len: u16 = 0;
 
-    var block: Block = [_]u16{0} ** block_size;
+    var block: Block = @splat(0);
     var block_len: u16 = 0;
 
     for (0..0x110000) |i| {

@@ -76,7 +76,7 @@ pub fn main() !void {
 
         const mapping = std.mem.trim(u8, field_it.next() orelse continue, " ");
         var mapping_it = std.mem.splitScalar(u8, mapping, ' ');
-        var mapping_buf = [_]u21{0} ** 3;
+        var mapping_buf: [3]u21 = @splat(0);
         var mapping_i: u8 = 0;
         while (mapping_it.next()) |mapping_c| {
             mapping_buf[mapping_i] = try std.fmt.parseInt(u21, mapping_c, 16);
@@ -172,7 +172,7 @@ pub fn main() !void {
         var stage2_blocks = std.AutoArrayHashMap(Block, void).init(allocator);
         defer stage2_blocks.deinit();
 
-        const empty_block: Block = [_]u8{0} ** 256;
+        const empty_block: Block = @splat(0);
         try stage2_blocks.put(empty_block, {});
         const stage1_len = (0x10FFFF / 256) + 1;
         var stage1: [stage1_len]u8 = undefined;

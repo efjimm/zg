@@ -188,7 +188,8 @@ fn decompose(
     var work_index: usize = 1;
 
     // Start work with argument code point.
-    var work = [_]u21{cp} ++ [_]u21{0} ** 17;
+    var work: [18]u21 = @splat(0);
+    work[0] = cp;
 
     while (work_index > 0) {
         // Look at previous code point in work queue.
