@@ -1,6 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
+
 const unicode_data_path = @import("options").unicode_data_path;
+
+const flate = @import("flate");
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -20,7 +23,7 @@ pub fn main() !void {
     _ = args_iter.skip();
     const output_path = args_iter.next() orelse @panic("No output file arg!");
 
-    const compressor = std.compress.flate.deflate.compressor;
+    const compressor = flate.deflate.compressor;
     var out_file = try std.fs.cwd().createFile(output_path, .{});
     defer out_file.close();
     var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });

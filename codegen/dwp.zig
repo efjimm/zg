@@ -1,8 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const unicode_data_path = @import("options").unicode_data_path;
 
 const options = @import("options");
+const unicode_data_path = @import("options").unicode_data_path;
+
+const flate = @import("flate");
 
 const block_size = 256;
 const Block = [block_size]i4;
@@ -32,16 +34,14 @@ pub fn main() !void {
     var flat_map = std.AutoHashMap(u21, i4).init(allocator);
     defer flat_map.deinit();
 
-    var line_buf: [4096]u8 = undefined;
-
     // Process DerivedEastAsianWidth.txt
     const deaw_data_path = unicode_data_path ++ "/extracted/DerivedEastAsianWidth.txt";
     var deaw_file = try std.fs.cwd().openFile(deaw_data_path, .{});
     defer deaw_file.close();
-    var deaw_buf = std.io.bufferedReader(deaw_file.deprecatedReader());
-    const deaw_reader = deaw_buf.reader();
+    var buf: [4096]u8 = undefined;
+    var deaw_reader = deaw_file.reader(&buf);
 
-    while (try deaw_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
+    while (deaw_reader.interface.takeDelimiterExclusive('\n')) |line| {
         if (line.len == 0) continue;
 
         // @missing ranges
@@ -90,16 +90,18 @@ pub fn main() !void {
                 else => {},
             }
         }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return deaw_reader.err orelse e,
     }
 
     // Process DerivedGeneralCategory.txt
     const dgc_data_path = unicode_data_path ++ "/extracted/DerivedGeneralCategory.txt";
     var dgc_file = try std.fs.cwd().openFile(dgc_data_path, .{});
     defer dgc_file.close();
-    var dgc_buf = std.io.bufferedReader(dgc_file.deprecatedReader());
-    const dgc_reader = dgc_buf.reader();
+    var dgc_reader = dgc_file.reader(&buf);
 
-    while (try dgc_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
+    while (dgc_reader.interface.takeDelimiterExclusive('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
 
@@ -142,6 +144,9 @@ pub fn main() !void {
                 else => {},
             }
         }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return dgc_reader.err orelse e,
     }
 
     var blocks_map = BlockMap.init(allocator);
@@ -230,7 +235,7 @@ pub fn main() !void {
     _ = args_iter.skip();
     const output_path = args_iter.next() orelse @panic("No output file arg!");
 
-    const compressor = std.compress.flate.deflate.compressor;
+    const compressor = flate.deflate.compressor;
     var out_file = try std.fs.cwd().createFile(output_path, .{});
     defer out_file.close();
     var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });

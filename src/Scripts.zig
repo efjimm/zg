@@ -21,7 +21,7 @@ pub fn isInitialized(s: *const Scripts) bool {
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Scripts {
     const in_bytes = @embedFile("scripts");
     var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = std.compress.flate.inflate.decompressor(.raw, in_fbs.reader());
+    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
     var reader = in_decomp.reader();
 
     // The generated data should match the target's endianness.

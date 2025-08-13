@@ -1,6 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
+
 const unicode_data_path = @import("options").unicode_data_path;
+
+const flate = @import("flate");
 
 const Indic = enum {
     none,
@@ -62,16 +65,14 @@ pub fn main() !void {
     var emoji_set = std.AutoHashMap(u21, void).init(allocator);
     defer emoji_set.deinit();
 
-    var line_buf: [4096]u8 = undefined;
-
     // Process Indic
     const indic_data_path = unicode_data_path ++ "/DerivedCoreProperties.txt";
     var indic_file = try std.fs.cwd().openFile(indic_data_path, .{});
     defer indic_file.close();
-    var indic_buf = std.io.bufferedReader(indic_file.deprecatedReader());
-    const indic_reader = indic_buf.reader();
+    var buf: [4096]u8 = undefined;
+    var indic_reader = indic_file.reader(&buf);
 
-    while (try indic_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
+    while (indic_reader.interface.takeDelimiterExclusive('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         if (std.mem.indexOf(u8, line, "InCB") == null) continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
@@ -102,16 +103,18 @@ pub fn main() !void {
                 else => {},
             }
         }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return indic_reader.err orelse e,
     }
 
     // Process GBP
     const gbp_data_path = unicode_data_path ++ "/auxiliary/GraphemeBreakProperty.txt";
     var gbp_file = try std.fs.cwd().openFile(gbp_data_path, .{});
     defer gbp_file.close();
-    var gbp_buf = std.io.bufferedReader(gbp_file.deprecatedReader());
-    const gbp_reader = gbp_buf.reader();
+    var gbp_reader = gbp_file.reader(&buf);
 
-    while (try gbp_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
+    while (gbp_reader.interface.takeDelimiterExclusive('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
 
@@ -141,16 +144,18 @@ pub fn main() !void {
                 else => {},
             }
         }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return gbp_reader.err orelse e,
     }
 
     // Process Emoji
     const emoji_data_path = unicode_data_path ++ "/emoji/emoji-data.txt";
     var emoji_file = try std.fs.cwd().openFile(emoji_data_path, .{});
     defer emoji_file.close();
-    var emoji_buf = std.io.bufferedReader(emoji_file.deprecatedReader());
-    const emoji_reader = emoji_buf.reader();
+    var emoji_reader = emoji_file.reader(&buf);
 
-    while (try emoji_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
+    while (emoji_reader.interface.takeDelimiterExclusive('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         if (std.mem.indexOf(u8, line, "Extended_Pictographic") == null) continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
@@ -174,6 +179,9 @@ pub fn main() !void {
                 else => {},
             }
         }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return emoji_reader.err orelse e,
     }
 
     var blocks_map = BlockMap.init(allocator);
@@ -231,10 +239,9 @@ pub fn main() !void {
     _ = args_iter.skip();
     const output_path = args_iter.next() orelse @panic("No output file arg!");
 
-    const compressor = std.compress.flate.deflate.compressor;
     var out_file = try std.fs.cwd().createFile(output_path, .{});
     defer out_file.close();
-    var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
+    var out_comp = try flate.deflate.compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
     const writer = out_comp.writer();
 
     const endian = @import("options").target_endian;

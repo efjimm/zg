@@ -1,6 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
+
 const unicode_data_path = @import("options").unicode_data_path;
+
+const flate = @import("flate");
 
 const block_size = 256;
 const Block = [block_size]u8;
@@ -30,16 +33,15 @@ pub fn main() !void {
     var flat_map = std.AutoHashMap(u21, u8).init(allocator);
     defer flat_map.deinit();
 
-    var line_buf: [4096]u8 = undefined;
+    var buf: [4096]u8 = undefined;
 
     // Process DerivedCombiningClass.txt
     const cc_data_path = unicode_data_path ++ "/extracted/DerivedCombiningClass.txt";
     var cc_file = try std.fs.cwd().openFile(cc_data_path, .{});
     defer cc_file.close();
-    var cc_buf = std.io.bufferedReader(cc_file.deprecatedReader());
-    const cc_reader = cc_buf.reader();
+    var cc_reader = cc_file.reader(&buf);
 
-    while (try cc_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
+    while (cc_reader.interface.takeDelimiterExclusive('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
 
@@ -70,6 +72,10 @@ pub fn main() !void {
                 else => {},
             }
         }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        error.ReadFailed => return cc_reader.err.?,
+        error.StreamTooLong => |e| return e,
     }
 
     var blocks_map = BlockMap.init(allocator);
@@ -109,7 +115,7 @@ pub fn main() !void {
     _ = args_iter.skip();
     const output_path = args_iter.next() orelse @panic("No output file arg!");
 
-    const compressor = std.compress.flate.deflate.compressor;
+    const compressor = flate.deflate.compressor;
     var out_file = try std.fs.cwd().createFile(output_path, .{});
     defer out_file.close();
     var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });

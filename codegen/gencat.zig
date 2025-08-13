@@ -1,6 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
+
 const unicode_data_path = @import("options").unicode_data_path;
+
+const flate = @import("flate");
 
 const Gc = enum {
     Cc, // Other, Control
@@ -63,16 +66,14 @@ pub fn main() !void {
     var flat_map = std.AutoHashMap(u21, u5).init(allocator);
     defer flat_map.deinit();
 
-    var line_buf: [4096]u8 = undefined;
-
     // Process DerivedGeneralCategory.txt
     const gencat_data_path = unicode_data_path ++ "/extracted/DerivedGeneralCategory.txt";
     var in_file = try std.fs.cwd().openFile(gencat_data_path, .{});
     defer in_file.close();
-    var in_buf = std.io.bufferedReader(in_file.deprecatedReader());
-    const in_reader = in_buf.reader();
+    var in_buf: [4096]u8 = undefined;
+    var in_reader = in_file.reader(&in_buf);
 
-    while (try in_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
+    while (in_reader.interface.takeDelimiterExclusive('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
 
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
@@ -103,6 +104,9 @@ pub fn main() !void {
                 else => {},
             }
         }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return in_reader.err orelse e,
     }
 
     var blocks_map = BlockMap.init(allocator);
@@ -153,7 +157,7 @@ pub fn main() !void {
     _ = args_iter.skip();
     const output_path = args_iter.next() orelse @panic("No output file arg!");
 
-    const compressor = std.compress.flate.deflate.compressor;
+    const compressor = flate.deflate.compressor;
     var out_file = try std.fs.cwd().createFile(output_path, .{});
     defer out_file.close();
     var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });

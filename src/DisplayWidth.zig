@@ -40,7 +40,7 @@ pub fn initWithGraphemes(
     graphemes: Graphemes,
 ) std.mem.Allocator.Error!DisplayWidth {
     var in_fbs = std.io.fixedBufferStream(@embedFile("dwp"));
-    var in_decomp = std.compress.flate.inflate.decompressor(.raw, in_fbs.reader());
+    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
     const reader = in_decomp.reader();
 
     const Header = extern struct {

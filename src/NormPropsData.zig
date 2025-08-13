@@ -9,7 +9,7 @@ const NormProps = @This();
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!NormProps {
     var in_fbs = std.io.fixedBufferStream(@embedFile("normp"));
-    var in_decomp = std.compress.flate.inflate.decompressor(.raw, in_fbs.reader());
+    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
     var reader = in_decomp.reader();
 
     const Header = extern struct {

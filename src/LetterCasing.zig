@@ -22,7 +22,7 @@ pub fn isInitialized(lc: *const LetterCasing) bool {
 }
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!LetterCasing {
-    const decompressor = std.compress.flate.inflate.decompressor;
+    const decompressor = @import("flate").inflate.decompressor;
     const endian = builtin.cpu.arch.endian();
 
     var fbs = std.io.fixedBufferStream(@embedFile("lettercasing"));

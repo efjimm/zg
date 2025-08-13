@@ -49,14 +49,13 @@ test "Unicode normalization tests" {
 
     var file = try fs.cwd().openFile("data/unicode/NormalizationTest.txt", .{});
     defer file.close();
-    var buf_reader = io.bufferedReader(file.deprecatedReader());
-    const input_stream = buf_reader.reader();
+    var buf: [4096]u8 = undefined;
+    var input_stream = file.reader(&buf);
 
     var line_no: usize = 0;
-    var buf: [4096]u8 = undefined;
     var cp_buf: [4]u8 = undefined;
 
-    while (try input_stream.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+    while (input_stream.interface.takeDelimiterExclusive('\n')) |line| {
         line_no += 1;
         // Skip comments or empty lines.
         if (line.len == 0 or line[0] == '#' or line[0] == '@') continue;
@@ -152,6 +151,9 @@ test "Unicode normalization tests" {
                 continue;
             }
         }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return input_stream.err orelse e,
     }
 }
 
@@ -159,16 +161,15 @@ test "Segmentation GraphemeIterator" {
     const allocator = std.testing.allocator;
     var file = try std.fs.cwd().openFile("data/unicode/auxiliary/GraphemeBreakTest.txt", .{});
     defer file.close();
-    var buf_reader = std.io.bufferedReader(file.deprecatedReader());
-    var input_stream = buf_reader.reader();
+    var buf: [4096]u8 = undefined;
+    var input_stream = file.reader(&buf);
 
     const data = try Graphemes.init(allocator);
     defer data.deinit(allocator);
 
-    var buf: [4096]u8 = undefined;
     var line_no: usize = 1;
 
-    while (try input_stream.readUntilDelimiterOrEof(&buf, '\n')) |raw| : (line_no += 1) {
+    while (input_stream.interface.takeDelimiterExclusive('\n')) |raw| : (line_no += 1) {
         // Skip comments or empty lines.
         if (raw.len == 0 or raw[0] == '#' or raw[0] == '@') continue;
 
@@ -217,6 +218,9 @@ test "Segmentation GraphemeIterator" {
                 got_gc.bytes(all_bytes.items),
             );
         }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return input_stream.err orelse e,
     }
 }
 
@@ -224,16 +228,15 @@ test "Segmentation ReverseGraphemeIterator" {
     const allocator = std.testing.allocator;
     var file = try std.fs.cwd().openFile("data/unicode/auxiliary/GraphemeBreakTest.txt", .{});
     defer file.close();
-    var buf_reader = std.io.bufferedReader(file.deprecatedReader());
-    var input_stream = buf_reader.reader();
+    var buf: [4096]u8 = undefined;
+    var input_stream = file.reader(&buf);
 
     const data = try Graphemes.init(allocator);
     defer data.deinit(allocator);
 
-    var buf: [4096]u8 = undefined;
     var line_no: usize = 1;
 
-    while (try input_stream.readUntilDelimiterOrEof(&buf, '\n')) |raw| : (line_no += 1) {
+    while (input_stream.interface.takeDelimiterExclusive('\n')) |raw| : (line_no += 1) {
         // Skip comments or empty lines.
         if (raw.len == 0 or raw[0] == '#' or raw[0] == '@') continue;
 
@@ -291,5 +294,8 @@ test "Segmentation ReverseGraphemeIterator" {
                 return err;
             };
         }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return input_stream.err orelse e,
     }
 }

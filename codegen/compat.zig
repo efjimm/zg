@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const unicode_data_path = @import("options").unicode_data_path;
+const flate = @import("flate");
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -11,22 +12,20 @@ pub fn main() !void {
     const unicode_data = unicode_data_path ++ "/UnicodeData.txt";
     var in_file = try std.fs.cwd().openFile(unicode_data, .{});
     defer in_file.close();
-    var in_buf = std.io.bufferedReader(in_file.deprecatedReader());
-    const in_reader = in_buf.reader();
+    var in_buf: [4096]u8 = undefined;
+    var in_reader = in_file.reader(&in_buf);
 
     var args_iter = try std.process.argsWithAllocator(allocator);
     defer args_iter.deinit();
     _ = args_iter.skip();
     const output_path = args_iter.next() orelse @panic("No output file arg!");
 
-    const compressor = std.compress.flate.deflate.compressor;
     var out_file = try std.fs.cwd().createFile(output_path, .{});
     defer out_file.close();
-    var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
+    var out_comp = try flate.deflate.compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
     const writer = out_comp.writer();
 
     const endian = @import("options").target_endian;
-    var line_buf: [4096]u8 = undefined;
 
     const Item = packed struct(u32) {
         cp: u24,
@@ -39,11 +38,12 @@ pub fn main() !void {
     try items.ensureTotalCapacity(allocator, 10_000);
     try out_cps.ensureTotalCapacity(allocator, 10_000);
 
-    lines: while (try in_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
+    lines: while (in_reader.interface.takeDelimiterExclusive('\n')) |line| {
         if (line.len == 0) continue;
 
         var field_iter = std.mem.splitScalar(u8, line, ';');
-        var cps: std.BoundedArray(u32, 18) = .{};
+        var b: [18]u32 = undefined;
+        var cps: std.ArrayListUnmanaged(u32) = .initBuffer(&b);
         var index_cp: u24 = undefined;
 
         var i: usize = 0;
@@ -69,13 +69,16 @@ pub fn main() !void {
             }
         }
 
-        std.debug.assert(cps.len >= 1);
+        std.debug.assert(cps.items.len >= 1);
         max_cp = index_cp;
         try items.append(allocator, .{
             .cp = index_cp,
-            .len = @intCast(cps.len),
+            .len = @intCast(cps.items.len),
         });
-        try out_cps.appendSlice(allocator, cps.constSlice());
+        try out_cps.appendSlice(allocator, cps.items);
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return in_reader.err orelse e,
     }
 
     try writer.writeInt(u32, @intCast(items.items.len), endian);

@@ -22,7 +22,7 @@ pub fn isInitialized(g: *const Graphemes) bool {
 }
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Graphemes {
-    const decompressor = std.compress.flate.inflate.decompressor;
+    const decompressor = @import("flate").inflate.decompressor;
     const in_bytes = @embedFile("gbp");
     var in_fbs = std.io.fixedBufferStream(in_bytes);
     var in_decomp = decompressor(.raw, in_fbs.reader());

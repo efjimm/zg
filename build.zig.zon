@@ -16,5 +16,6 @@
         "src",
         "unicode_license",
         "UNICODE_VERSION.txt",
+        "flate",
     },
 }

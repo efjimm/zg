@@ -24,7 +24,7 @@ pub fn isInitialized(p: *const Properties) bool {
 }
 
 pub fn init(allocator: Allocator) Allocator.Error!Properties {
-    const decompressor = std.compress.flate.inflate.decompressor;
+    const decompressor = @import("flate").inflate.decompressor;
 
     // Process DerivedCoreProperties.txt
     var fbs = std.io.fixedBufferStream(@embedFile("properties"));

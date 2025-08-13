@@ -1,7 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
+
 const unicode_data_path = @import("options").unicode_data_path;
-const mem = std.mem;
+
+const flate = @import("flate");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -12,15 +14,13 @@ pub fn main() !void {
     const props_data_path = unicode_data_path ++ "/DerivedCoreProperties.txt";
     var props_file = try std.fs.cwd().openFile(props_data_path, .{});
     defer props_file.close();
-    var props_buf = std.io.bufferedReader(props_file.deprecatedReader());
-    const props_reader = props_buf.reader();
+    var buf: [4096]u8 = undefined;
+    var props_reader = props_file.reader(&buf);
 
     var props_map = std.AutoHashMap(u21, void).init(allocator);
     defer props_map.deinit();
 
-    var line_buf: [4096]u8 = undefined;
-
-    props_lines: while (try props_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
+    props_lines: while (props_reader.interface.takeDelimiterExclusive('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
 
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
@@ -45,12 +45,15 @@ pub fn main() !void {
                 },
                 1 => {
                     // Core property
-                    if (!mem.eql(u8, field, "Changes_When_Casefolded")) continue :props_lines;
+                    if (!std.mem.eql(u8, field, "Changes_When_Casefolded")) continue :props_lines;
                     for (current_code[0]..current_code[1] + 1) |cp| try props_map.put(@intCast(cp), {});
                 },
                 else => {},
             }
         }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return props_reader.err orelse e,
     }
 
     var codepoint_mapping = std.AutoArrayHashMap(u21, [3]u21).init(allocator);
@@ -60,10 +63,9 @@ pub fn main() !void {
     const casefolding_data_path = unicode_data_path ++ "/CaseFolding.txt";
     var cp_file = try std.fs.cwd().openFile(casefolding_data_path, .{});
     defer cp_file.close();
-    var cp_buf = std.io.bufferedReader(cp_file.deprecatedReader());
-    const cp_reader = cp_buf.reader();
+    var cp_reader = cp_file.reader(&buf);
 
-    while (try cp_reader.readUntilDelimiterOrEof(&line_buf, '\n')) |line| {
+    while (cp_reader.interface.takeDelimiterExclusive('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
 
         var field_it = std.mem.splitScalar(u8, line, ';');
@@ -84,6 +86,9 @@ pub fn main() !void {
         }
 
         try codepoint_mapping.putNoClobber(codepoint, mapping_buf);
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return cp_reader.err orelse e,
     }
 
     var changes_when_casefolded_exceptions = std.ArrayList(u21).init(allocator);
@@ -224,7 +229,7 @@ pub fn main() !void {
         _ = args_iter.skip();
         const output_path = args_iter.next() orelse @panic("No output file arg!");
 
-        const compressor = std.compress.flate.deflate.compressor;
+        const compressor = flate.deflate.compressor;
         var out_file = try std.fs.cwd().createFile(output_path, .{});
         defer out_file.close();
         var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });

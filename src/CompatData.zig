@@ -22,7 +22,7 @@ const CompatData = @This();
 pub fn init(allocator: std.mem.Allocator) !CompatData {
     const in_bytes = @embedFile("compat");
     var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = std.compress.flate.inflate.decompressor(.raw, in_fbs.reader());
+    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
     var reader = in_decomp.reader();
 
     const Header = extern struct {

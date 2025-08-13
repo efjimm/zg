@@ -20,6 +20,12 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const flate = b.createModule(.{
+        .root_source_file = b.path("flate/flate.zig"),
+        .optimize = .Debug,
+        .target = b.graph.host,
+    });
+
     // Display width
     const cjk = b.option(bool, "cjk", "Ambiguous code points are wide (display width: 2).") orelse false;
     const options = b.addOptions();
@@ -45,6 +51,7 @@ pub fn build(b: *std.Build) !void {
     options.addOption(i4, "c1_width", c1_width);
 
     options.addOptionPath("unicode_data_path", b.path("data/unicode"));
+    const options_mod = options.createModule();
 
     const print_sizes = b.addExecutable(.{
         .name = "print-sizes",
@@ -61,6 +68,10 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "options", .module = options_mod },
+            .{ .name = "flate", .module = flate },
+        },
     });
 
     root_module.addAnonymousImport("magic", .{ .root_source_file = b.path("src/magic_numbers.zig") });
@@ -73,20 +84,27 @@ pub fn build(b: *std.Build) !void {
                 .root_source_file = b.path(path),
                 .target = b.graph.host,
                 .optimize = .Debug,
+                .imports = &.{
+                    .{ .name = "options", .module = options_mod },
+                    .{ .name = "flate", .module = flate },
+                },
             }),
         });
-        gen_exe.root_module.addOptions("options", options);
         const run_gen_exe = b.addRunArtifact(gen_exe);
         const output = run_gen_exe.addOutputFileArg(name ++ ".bin.z");
         root_module.addAnonymousImport(name, .{ .root_source_file = output });
         print_sizes.root_module.addAnonymousImport(name, .{ .root_source_file = output });
     }
-    root_module.addOptions("options", options);
 
     const unicode_tests = b.addTest(.{
-        .root_module = b.createModule(.{ .root_source_file = b.path("src/unicode_tests.zig"), .target = target, .optimize = optimize, .imports = &.{
-            .{ .name = "zg", .module = root_module },
-        } }),
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/unicode_tests.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zg", .module = root_module },
+            },
+        }),
     });
 
     const run_unicode_tests = b.addRunArtifact(unicode_tests);
