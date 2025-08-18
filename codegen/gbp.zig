@@ -52,17 +52,17 @@ const BlockMap = std.HashMap(
 );
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var arena_impl: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena_impl.deinit();
+    const arena = arena_impl.allocator();
 
-    var indic_map = std.AutoHashMap(u21, Indic).init(allocator);
+    var indic_map = std.AutoHashMap(u21, Indic).init(arena);
     defer indic_map.deinit();
 
-    var gbp_map = std.AutoHashMap(u21, Gbp).init(allocator);
+    var gbp_map = std.AutoHashMap(u21, Gbp).init(arena);
     defer gbp_map.deinit();
 
-    var emoji_set = std.AutoHashMap(u21, void).init(allocator);
+    var emoji_set = std.AutoHashMap(u21, void).init(arena);
     defer emoji_set.deinit();
 
     // Process Indic
@@ -184,16 +184,12 @@ pub fn main() !void {
         else => |e| return emoji_reader.err orelse e,
     }
 
-    var blocks_map = BlockMap.init(allocator);
+    var blocks_map = BlockMap.init(arena);
     defer blocks_map.deinit();
 
-    var stage1 = std.ArrayList(u16).init(allocator);
-    defer stage1.deinit();
-
-    var stage2 = std.ArrayList(u16).init(allocator);
-    defer stage2.deinit();
-
-    var stage3 = std.AutoArrayHashMap(u8, u16).init(allocator);
+    var stage1: std.ArrayList(u16) = .empty;
+    var stage2: std.ArrayList(u16) = .empty;
+    var stage3 = std.AutoArrayHashMap(u8, u16).init(arena);
     defer stage3.deinit();
     var stage3_len: u16 = 0;
 
@@ -227,14 +223,14 @@ pub fn main() !void {
         const gop = try blocks_map.getOrPut(block);
         if (!gop.found_existing) {
             gop.value_ptr.* = @intCast(stage2.items.len);
-            try stage2.appendSlice(&block);
+            try stage2.appendSlice(arena, &block);
         }
 
-        try stage1.append(gop.value_ptr.*);
+        try stage1.append(arena, gop.value_ptr.*);
         block_len = 0;
     }
 
-    var args_iter = try std.process.argsWithAllocator(allocator);
+    var args_iter = try std.process.argsWithAllocator(arena);
     defer args_iter.deinit();
     _ = args_iter.skip();
     const output_path = args_iter.next() orelse @panic("No output file arg!");

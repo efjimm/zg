@@ -433,14 +433,14 @@ test "padRight" {
 /// from the edge. Caller must free returned bytes with `allocator`.
 pub fn wrap(
     dw: *const DisplayWidth,
-    allocator: std.mem.Allocator,
+    gpa: std.mem.Allocator,
     str: []const u8,
     columns: usize,
     threshold: usize,
 ) ![]u8 {
     assert(dw.isInitialized());
-    var result = std.ArrayList(u8).init(allocator);
-    defer result.deinit();
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(gpa);
 
     var line_iter = std.mem.tokenizeAny(u8, str, "\r\n");
     var line_width: usize = 0;
@@ -449,12 +449,12 @@ pub fn wrap(
         var word_iter = std.mem.tokenizeScalar(u8, line, ' ');
 
         while (word_iter.next()) |word| {
-            try result.appendSlice(word);
-            try result.append(' ');
+            try result.appendSlice(gpa, word);
+            try result.append(gpa, ' ');
             line_width += dw.strWidth(word, .{}).width + 1;
 
             if (line_width > columns or columns - line_width <= threshold) {
-                try result.append('\n');
+                try result.append(gpa, '\n');
                 line_width = 0;
             }
         }
@@ -464,7 +464,7 @@ pub fn wrap(
     _ = result.pop();
     _ = result.pop();
 
-    return try result.toOwnedSlice();
+    return try result.toOwnedSlice(gpa);
 }
 
 test "wrap" {

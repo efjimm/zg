@@ -26,11 +26,11 @@ const BlockMap = std.HashMap(
 );
 
 pub fn fromFile(
-    allocator: std.mem.Allocator,
+    gpa: std.mem.Allocator,
     filepath: []const u8,
     field_names: []const []const u8,
 ) !struct { []const u16, []const u8 } {
-    var flat_map = std.AutoHashMap(u21, u8).init(allocator);
+    var flat_map = std.AutoHashMap(u21, u8).init(gpa);
     defer flat_map.deinit();
 
     // Process DerivedNumericType.txt
@@ -82,14 +82,14 @@ pub fn fromFile(
         else => |e| return in_reader.err orelse e,
     }
 
-    var blocks_map = BlockMap.init(allocator);
+    var blocks_map = BlockMap.init(gpa);
     defer blocks_map.deinit();
 
-    var stage1 = std.ArrayList(u16).init(allocator);
-    defer stage1.deinit();
+    var stage1: std.ArrayList(u16) = .empty;
+    defer stage1.deinit(gpa);
 
-    var stage2 = std.ArrayList(u8).init(allocator);
-    defer stage2.deinit();
+    var stage2: std.ArrayList(u8) = .empty;
+    defer stage2.deinit(gpa);
 
     var block: Block = @splat(0);
     var block_len: u16 = 0;
@@ -107,31 +107,31 @@ pub fn fromFile(
         const gop = try blocks_map.getOrPut(block);
         if (!gop.found_existing) {
             gop.value_ptr.* = @intCast(stage2.items.len);
-            try stage2.appendSlice(&block);
+            try stage2.appendSlice(gpa, &block);
         }
 
-        try stage1.append(gop.value_ptr.*);
+        try stage1.append(gpa, gop.value_ptr.*);
         block_len = 0;
     }
 
     return .{
-        try stage1.toOwnedSlice(),
-        try stage2.toOwnedSlice(),
+        try stage1.toOwnedSlice(gpa),
+        try stage2.toOwnedSlice(gpa),
     };
 }
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var arena_impl = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_impl.deinit();
+    const arena = arena_impl.allocator();
 
-    var flat_map = std.AutoHashMap(u21, u8).init(allocator);
+    var flat_map = std.AutoHashMap(u21, u8).init(arena);
     defer flat_map.deinit();
 
     const core_path = unicode_data_path ++ "/DerivedCoreProperties.txt";
     const props_path = unicode_data_path ++ "/PropList.txt";
     const num_path = unicode_data_path ++ "/extracted/DerivedNumericType.txt";
 
-    const s1, const s2 = try fromFile(allocator, core_path, &.{
+    const s1, const s2 = try fromFile(arena, core_path, &.{
         "Math",
         "Alphabetic",
         "ID_Start",
@@ -140,19 +140,19 @@ pub fn main() !void {
         "XID_Continue",
     });
 
-    const s3, const s4 = try fromFile(allocator, props_path, &.{
+    const s3, const s4 = try fromFile(arena, props_path, &.{
         "White_Space",
         "Hex_Digit",
         "Diacritic",
     });
 
-    const s5, const s6 = try fromFile(allocator, num_path, &.{
+    const s5, const s6 = try fromFile(arena, num_path, &.{
         "Numeric",
         "Digit",
         "Decimal",
     });
 
-    var args_iter = try std.process.argsWithAllocator(allocator);
+    var args_iter = try std.process.argsWithAllocator(arena);
     defer args_iter.deinit();
     _ = args_iter.skip();
     const output_path = args_iter.next() orelse @panic("No output file arg!");

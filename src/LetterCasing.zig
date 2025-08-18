@@ -133,22 +133,24 @@ pub fn toUpper(self: *const LetterCasing, cp: u21) u21 {
 /// Caller must free returned bytes with `allocator`.
 pub fn toUpperStr(
     self: *const LetterCasing,
-    allocator: std.mem.Allocator,
+    gpa: std.mem.Allocator,
     str: []const u8,
 ) ![]u8 {
     assert(self.isInitialized());
-    var bytes = std.ArrayList(u8).init(allocator);
-    defer bytes.deinit();
+    var bytes: std.ArrayList(u8) = .empty;
+    defer bytes.deinit(gpa);
 
     var iter: CodePointIterator = .init(str);
     var buf: [4]u8 = undefined;
 
     while (iter.next()) |cp| {
         const len = try std.unicode.utf8Encode(self.toUpper(cp.code), &buf);
-        try bytes.appendSlice(buf[0..len]);
+        try bytes.appendSlice(gpa, buf[0..len]);
     }
 
-    return try bytes.toOwnedSlice();
+    return try bytes.toOwnedSlice(
+        gpa,
+    );
 }
 
 test "toUpperStr" {
@@ -199,22 +201,22 @@ pub fn toLower(self: *const LetterCasing, cp: u21) u21 {
 /// Caller must free returned bytes with `allocator`.
 pub fn toLowerStr(
     self: *const LetterCasing,
-    allocator: std.mem.Allocator,
+    gpa: std.mem.Allocator,
     str: []const u8,
 ) ![]u8 {
     assert(self.isInitialized());
-    var bytes = std.ArrayList(u8).init(allocator);
-    defer bytes.deinit();
+    var bytes: std.ArrayList(u8) = .empty;
+    defer bytes.deinit(gpa);
 
     var iter: CodePointIterator = .init(str);
     var buf: [4]u8 = undefined;
 
     while (iter.next()) |cp| {
         const len = try std.unicode.utf8Encode(self.toLower(cp.code), &buf);
-        try bytes.appendSlice(buf[0..len]);
+        try bytes.appendSlice(gpa, buf[0..len]);
     }
 
-    return try bytes.toOwnedSlice();
+    return try bytes.toOwnedSlice(gpa);
 }
 
 test "toLowerStr" {

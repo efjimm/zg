@@ -129,25 +129,25 @@ pub fn caseFold(fdata: *const CaseFolding, cp: u21, buf: []u21) []const u21 {
 /// slice with `allocator`.
 pub fn caseFoldAlloc(
     casefold: *const CaseFolding,
-    allocator: std.mem.Allocator,
+    gpa: std.mem.Allocator,
     cps: []const u21,
 ) std.mem.Allocator.Error![]const u21 {
     assert(casefold.isInitialized());
-    var cfcps = std.ArrayList(u21).init(allocator);
-    defer cfcps.deinit();
+    var cfcps: std.ArrayList(u21) = .empty;
+    defer cfcps.deinit(gpa);
     var buf: [3]u21 = undefined;
 
     for (cps) |cp| {
         const cf = casefold.caseFold(cp, &buf);
 
         if (cf.len == 0) {
-            try cfcps.append(cp);
+            try cfcps.append(gpa, cp);
         } else {
-            try cfcps.appendSlice(cf);
+            try cfcps.appendSlice(gpa, cf);
         }
     }
 
-    return try cfcps.toOwnedSlice();
+    return try cfcps.toOwnedSlice(gpa);
 }
 
 /// Returns true when caseFold(NFD(`cp`)) != NFD(`cp`).

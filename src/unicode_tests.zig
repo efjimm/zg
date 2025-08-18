@@ -40,12 +40,12 @@ test "Iterator.peek" {
 }
 
 test "Unicode normalization tests" {
-    var arena = heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    var allocator = arena.allocator();
+    var arena_impl = heap.ArenaAllocator.init(testing.allocator);
+    defer arena_impl.deinit();
+    var arena = arena_impl.allocator();
 
-    const n = try Normalize.init(allocator);
-    defer n.deinit(allocator);
+    const n = try Normalize.init(arena);
+    defer n.deinit(arena);
 
     var file = try fs.cwd().openFile("data/unicode/NormalizationTest.txt", .{});
     defer file.close();
@@ -63,88 +63,83 @@ test "Unicode normalization tests" {
         var fields = mem.splitScalar(u8, line, ';');
         var field_index: usize = 0;
         var input: []u8 = undefined;
-        defer allocator.free(input);
+        defer arena.free(input);
 
         while (fields.next()) |field| : (field_index += 1) {
             if (field_index == 0) {
-                var i_buf = std.ArrayList(u8).init(allocator);
-                defer i_buf.deinit();
+                var i_buf: std.ArrayList(u8) = .empty;
 
                 var i_fields = mem.splitScalar(u8, field, ' ');
                 while (i_fields.next()) |s| {
                     const icp = try fmt.parseInt(u21, s, 16);
                     const len = try unicode.utf8Encode(icp, &cp_buf);
-                    try i_buf.appendSlice(cp_buf[0..len]);
+                    try i_buf.appendSlice(arena, cp_buf[0..len]);
                 }
 
-                input = try i_buf.toOwnedSlice();
+                input = try i_buf.toOwnedSlice(arena);
             } else if (field_index == 1) {
                 //debug.print("\n*** {s} ***\n", .{line});
                 // NFC, time to test.
-                var w_buf = std.ArrayList(u8).init(allocator);
-                defer w_buf.deinit();
+                var w_buf: std.ArrayList(u8) = .empty;
 
                 var w_fields = mem.splitScalar(u8, field, ' ');
                 while (w_fields.next()) |s| {
                     const wcp = try fmt.parseInt(u21, s, 16);
                     const len = try unicode.utf8Encode(wcp, &cp_buf);
-                    try w_buf.appendSlice(cp_buf[0..len]);
+                    try w_buf.appendSlice(arena, cp_buf[0..len]);
                 }
 
                 const want = w_buf.items;
-                var got = try n.nfc(allocator, input);
-                defer got.deinit(allocator);
+                var got = try n.nfc(arena, input);
+                defer got.deinit(arena);
 
                 try testing.expectEqualStrings(want, got.slice);
             } else if (field_index == 2) {
                 // NFD, time to test.
-                var w_buf = std.ArrayList(u8).init(allocator);
-                defer w_buf.deinit();
+                var w_buf: std.ArrayList(u8) = .empty;
 
                 var w_fields = mem.splitScalar(u8, field, ' ');
                 while (w_fields.next()) |s| {
                     const wcp = try fmt.parseInt(u21, s, 16);
                     const len = try unicode.utf8Encode(wcp, &cp_buf);
-                    try w_buf.appendSlice(cp_buf[0..len]);
+                    try w_buf.appendSlice(arena, cp_buf[0..len]);
                 }
 
                 const want = w_buf.items;
-                var got = try n.nfd(allocator, input);
-                defer got.deinit(allocator);
+                var got = try n.nfd(arena, input);
+                defer got.deinit(arena);
 
                 try testing.expectEqualStrings(want, got.slice);
             } else if (field_index == 3) {
                 // NFKC, time to test.
-                var w_buf = std.ArrayList(u8).init(allocator);
-                defer w_buf.deinit();
+                var w_buf: std.ArrayList(u8) = .empty;
 
                 var w_fields = mem.splitScalar(u8, field, ' ');
                 while (w_fields.next()) |s| {
                     const wcp = try fmt.parseInt(u21, s, 16);
                     const len = try unicode.utf8Encode(wcp, &cp_buf);
-                    try w_buf.appendSlice(cp_buf[0..len]);
+                    try w_buf.appendSlice(arena, cp_buf[0..len]);
                 }
 
                 const want = w_buf.items;
-                var got = try n.nfkc(allocator, input);
-                defer got.deinit(allocator);
+                var got = try n.nfkc(arena, input);
+                defer got.deinit(arena);
 
                 try testing.expectEqualStrings(want, got.slice);
             } else if (field_index == 4) {
                 // NFKD, time to test.
-                var w_buf = std.ArrayList(u8).init(allocator);
-                defer w_buf.deinit();
+                var w_buf: std.ArrayList(u8) = .empty;
 
                 var w_fields = mem.splitScalar(u8, field, ' ');
                 while (w_fields.next()) |s| {
                     const wcp = try fmt.parseInt(u21, s, 16);
                     const len = try unicode.utf8Encode(wcp, &cp_buf);
-                    try w_buf.appendSlice(cp_buf[0..len]);
+                    try w_buf.appendSlice(arena, cp_buf[0..len]);
                 }
 
                 const want = w_buf.items;
-                const got = try n.nfkd(allocator, input);
-                defer got.deinit(allocator);
+                const got = try n.nfkd(arena, input);
+                defer got.deinit(arena);
 
                 try testing.expectEqualStrings(want, got.slice);
             } else {
@@ -179,11 +174,10 @@ test "Segmentation GraphemeIterator" {
             line = line[0..octo];
         }
         // Iterate over fields.
-        var want = std.ArrayList(Grapheme).init(allocator);
-        defer want.deinit();
-
-        var all_bytes = std.ArrayList(u8).init(allocator);
-        defer all_bytes.deinit();
+        var want: std.ArrayList(Grapheme) = .empty;
+        defer want.deinit(allocator);
+        var all_bytes: std.ArrayList(u8) = .empty;
+        defer all_bytes.deinit(allocator);
 
         var graphemes = std.mem.splitSequence(u8, line, " ÷ ");
         var bytes_index: usize = 0;
@@ -198,12 +192,12 @@ test "Segmentation GraphemeIterator" {
                 if (std.mem.eql(u8, code_point, "×")) continue;
                 const cp: u21 = try std.fmt.parseInt(u21, code_point, 16);
                 const len = try unicode.utf8Encode(cp, &cp_buf);
-                try all_bytes.appendSlice(cp_buf[0..len]);
+                try all_bytes.appendSlice(allocator, cp_buf[0..len]);
                 cp_index += len;
                 gc_len += len;
             }
 
-            try want.append(Grapheme{ .len = gc_len, .offset = bytes_index });
+            try want.append(allocator, .{ .len = gc_len, .offset = bytes_index });
             bytes_index += cp_index;
         }
 
@@ -246,11 +240,11 @@ test "Segmentation ReverseGraphemeIterator" {
             line = line[0..octo];
         }
         // Iterate over fields.
-        var want = std.ArrayList(Grapheme).init(allocator);
-        defer want.deinit();
+        var want: std.ArrayList(Grapheme) = .empty;
+        defer want.deinit(allocator);
 
-        var all_bytes = std.ArrayList(u8).init(allocator);
-        defer all_bytes.deinit();
+        var all_bytes: std.ArrayList(u8) = .empty;
+        defer all_bytes.deinit(allocator);
 
         var graphemes = std.mem.splitSequence(u8, line, " ÷ ");
         var bytes_index: u32 = 0;
@@ -265,12 +259,12 @@ test "Segmentation ReverseGraphemeIterator" {
                 if (std.mem.eql(u8, code_point, "×")) continue;
                 const cp: u21 = try std.fmt.parseInt(u21, code_point, 16);
                 const len = try unicode.utf8Encode(cp, &cp_buf);
-                try all_bytes.appendSlice(cp_buf[0..len]);
+                try all_bytes.appendSlice(allocator, cp_buf[0..len]);
                 cp_index += len;
                 gc_len += len;
             }
 
-            try want.append(Grapheme{ .len = gc_len, .offset = bytes_index });
+            try want.append(allocator, .{ .len = gc_len, .offset = bytes_index });
             bytes_index += cp_index;
         }
 

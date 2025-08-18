@@ -6,9 +6,7 @@ const unicode_data_path = @import("options").unicode_data_path;
 const flate = @import("flate");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(gpa.deinit() == .ok);
-    const allocator = gpa.allocator();
+    const gpa = std.heap.smp_allocator;
 
     // Process DerivedCoreProperties.txt
     const props_data_path = unicode_data_path ++ "/DerivedCoreProperties.txt";
@@ -17,7 +15,7 @@ pub fn main() !void {
     var buf: [4096]u8 = undefined;
     var props_reader = props_file.reader(&buf);
 
-    var props_map = std.AutoHashMap(u21, void).init(allocator);
+    var props_map = std.AutoHashMap(u21, void).init(gpa);
     defer props_map.deinit();
 
     props_lines: while (props_reader.interface.takeDelimiterExclusive('\n')) |line| {
@@ -56,7 +54,7 @@ pub fn main() !void {
         else => |e| return props_reader.err orelse e,
     }
 
-    var codepoint_mapping = std.AutoArrayHashMap(u21, [3]u21).init(allocator);
+    var codepoint_mapping = std.AutoArrayHashMap(u21, [3]u21).init(gpa);
     defer codepoint_mapping.deinit();
 
     // Process CaseFolding.txt
@@ -91,22 +89,20 @@ pub fn main() !void {
         else => |e| return cp_reader.err orelse e,
     }
 
-    var changes_when_casefolded_exceptions = std.ArrayList(u21).init(allocator);
-    defer changes_when_casefolded_exceptions.deinit();
-
+    var changes_when_casefolded_exceptions: std.ArrayList(u21) = .empty;
     {
         // Codepoints with a case fold mapping can be missing the Changes_When_Casefolded property,
         // but not vice versa.
         for (codepoint_mapping.keys()) |codepoint| {
             if (props_map.get(codepoint) == null) {
-                try changes_when_casefolded_exceptions.append(codepoint);
+                try changes_when_casefolded_exceptions.append(gpa, codepoint);
             }
         }
     }
 
-    var offset_to_index = std.AutoHashMap(i32, u8).init(allocator);
+    var offset_to_index = std.AutoHashMap(i32, u8).init(gpa);
     defer offset_to_index.deinit();
-    var unique_offsets = std.AutoArrayHashMap(i32, u32).init(allocator);
+    var unique_offsets = std.AutoArrayHashMap(i32, u32).init(gpa);
     defer unique_offsets.deinit();
 
     // First pass
@@ -142,9 +138,9 @@ pub fn main() !void {
         }
     }
 
-    var mappings_to_index = std.AutoArrayHashMap([3]u21, u8).init(allocator);
+    var mappings_to_index = std.AutoArrayHashMap([3]u21, u8).init(gpa);
     defer mappings_to_index.deinit();
-    var codepoint_to_index = std.AutoHashMap(u21, u8).init(allocator);
+    var codepoint_to_index = std.AutoHashMap(u21, u8).init(gpa);
     defer codepoint_to_index.deinit();
 
     // Second pass
@@ -174,7 +170,7 @@ pub fn main() !void {
     // Build the stage1/stage2/stage3 arrays and output them
     {
         const Block = [256]u8;
-        var stage2_blocks = std.AutoArrayHashMap(Block, void).init(allocator);
+        var stage2_blocks = std.AutoArrayHashMap(Block, void).init(gpa);
         defer stage2_blocks.deinit();
 
         const empty_block: Block = @splat(0);
@@ -203,8 +199,8 @@ pub fn main() !void {
 
         var index: usize = 0;
         const stage3_elems = unique_offsets.count() + mappings_to_index.count() * 3;
-        var stage3 = try allocator.alloc(i24, stage3_elems);
-        defer allocator.free(stage3);
+        var stage3 = try gpa.alloc(i24, stage3_elems);
+        defer gpa.free(stage3);
         for (unique_offsets.keys()) |key| {
             stage3[index] = @intCast(key);
             index += 1;
@@ -217,14 +213,14 @@ pub fn main() !void {
         }
 
         const stage2_elems = stage2_blocks.count() * 256;
-        var stage2 = try allocator.alloc(u8, stage2_elems);
-        defer allocator.free(stage2);
+        var stage2 = try gpa.alloc(u8, stage2_elems);
+        defer gpa.free(stage2);
         for (stage2_blocks.keys(), 0..) |key, i| {
             @memcpy(stage2[i * 256 ..][0..256], &key);
         }
 
         // Write out compressed binary data file.
-        var args_iter = try std.process.argsWithAllocator(allocator);
+        var args_iter = try std.process.argsWithAllocator(gpa);
         defer args_iter.deinit();
         _ = args_iter.skip();
         const output_path = args_iter.next() orelse @panic("No output file arg!");

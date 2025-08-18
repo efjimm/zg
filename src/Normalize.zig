@@ -310,10 +310,15 @@ pub fn nfkd(self: *const Normalize, allocator: Allocator, str: []const u8) Alloc
     return self.nfxd(allocator, str, .nfkd);
 }
 
-pub fn nfxdCodePoints(self: *const Normalize, allocator: Allocator, str: []const u8, form: Form) Allocator.Error![]u21 {
+pub fn nfxdCodePoints(
+    self: *const Normalize,
+    gpa: Allocator,
+    str: []const u8,
+    form: Form,
+) Allocator.Error![]u21 {
     assert(self.isInitialized());
-    var dcp_list = std.ArrayList(u21).init(allocator);
-    defer dcp_list.deinit();
+    var dcp_list: std.ArrayList(u21) = .empty;
+    defer dcp_list.deinit(gpa);
 
     var cp_iter: CodePointIterator = .init(str);
     var dc_buf: [18]u21 = undefined;
@@ -321,34 +326,34 @@ pub fn nfxdCodePoints(self: *const Normalize, allocator: Allocator, str: []const
     while (cp_iter.next()) |cp| {
         const dc = self.decompose(cp.code, form, &dc_buf);
         if (dc.form == .same) {
-            try dcp_list.append(cp.code);
+            try dcp_list.append(gpa, cp.code);
         } else {
-            try dcp_list.appendSlice(dc.cps);
+            try dcp_list.appendSlice(gpa, dc.cps);
         }
     }
 
     self.canonicalSort(dcp_list.items);
 
-    return try dcp_list.toOwnedSlice();
+    return try dcp_list.toOwnedSlice(gpa);
 }
 
-fn nfxd(self: *const Normalize, allocator: Allocator, str: []const u8, form: Form) Allocator.Error!Result {
+fn nfxd(self: *const Normalize, gpa: Allocator, str: []const u8, form: Form) Allocator.Error!Result {
     // Quick checks.
     if (ascii.isAsciiOnly(str)) return Result{ .slice = str };
 
-    const dcps = try self.nfxdCodePoints(allocator, str, form);
-    defer allocator.free(dcps);
+    const dcps = try self.nfxdCodePoints(gpa, str, form);
+    defer gpa.free(dcps);
 
-    var dstr_list = std.ArrayList(u8).init(allocator);
-    defer dstr_list.deinit();
+    var dstr_list: std.ArrayList(u8) = .empty;
+    defer dstr_list.deinit(gpa);
     var buf: [4]u8 = undefined;
 
     for (dcps) |dcp| {
         const len = std.unicode.utf8Encode(dcp, &buf) catch unreachable;
-        try dstr_list.appendSlice(buf[0..len]);
+        try dstr_list.appendSlice(gpa, buf[0..len]);
     }
 
-    return Result{ .allocated = true, .slice = try dstr_list.toOwnedSlice() };
+    return Result{ .allocated = true, .slice = try dstr_list.toOwnedSlice(gpa) };
 }
 
 test "nfd ASCII / no-alloc" {
@@ -397,12 +402,12 @@ test "nfkd !ASCII / alloc" {
 
 pub fn nfdCodePoints(
     self: *const Normalize,
-    allocator: Allocator,
+    gpa: Allocator,
     cps: []const u21,
 ) Allocator.Error![]u21 {
     assert(self.isInitialized());
-    var dcp_list = std.ArrayList(u21).init(allocator);
-    defer dcp_list.deinit();
+    var dcp_list: std.ArrayList(u21) = .empty;
+    defer dcp_list.deinit(gpa);
 
     var dc_buf: [18]u21 = undefined;
 
@@ -410,25 +415,25 @@ pub fn nfdCodePoints(
         const dc = self.decompose(cp, .nfd, &dc_buf);
 
         if (dc.form == .same) {
-            try dcp_list.append(cp);
+            try dcp_list.append(gpa, cp);
         } else {
-            try dcp_list.appendSlice(dc.cps);
+            try dcp_list.appendSlice(gpa, dc.cps);
         }
     }
 
     self.canonicalSort(dcp_list.items);
 
-    return try dcp_list.toOwnedSlice();
+    return try dcp_list.toOwnedSlice(gpa);
 }
 
 pub fn nfkdCodePoints(
     self: *const Normalize,
-    allocator: Allocator,
+    gpa: Allocator,
     cps: []const u21,
 ) Allocator.Error![]u21 {
     assert(self.isInitialized());
-    var dcp_list = std.ArrayList(u21).init(allocator);
-    defer dcp_list.deinit();
+    var dcp_list: std.ArrayList(u21) = .empty;
+    defer dcp_list.deinit(gpa);
 
     var dc_buf: [18]u21 = undefined;
 
@@ -436,15 +441,15 @@ pub fn nfkdCodePoints(
         const dc = self.decompose(cp, .nfkd, &dc_buf);
 
         if (dc.form == .same) {
-            try dcp_list.append(cp);
+            try dcp_list.append(gpa, cp);
         } else {
-            try dcp_list.appendSlice(dc.cps);
+            try dcp_list.appendSlice(gpa, dc.cps);
         }
     }
 
     self.canonicalSort(dcp_list.items);
 
-    return try dcp_list.toOwnedSlice();
+    return try dcp_list.toOwnedSlice(gpa);
 }
 
 // Composition (NFC, NFKC)
@@ -454,28 +459,28 @@ fn isHangul(self: *const Normalize, cp: u21) bool {
 }
 
 /// Normalizes `str` to NFC.
-pub fn nfc(self: *const Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
+pub fn nfc(self: *const Normalize, gpa: Allocator, str: []const u8) Allocator.Error!Result {
     assert(self.isInitialized());
-    return self.nfxc(allocator, str, .nfc);
+    return self.nfxc(gpa, str, .nfc);
 }
 
 /// Normalizes `str` to NFKC.
-pub fn nfkc(self: *const Normalize, allocator: Allocator, str: []const u8) Allocator.Error!Result {
+pub fn nfkc(self: *const Normalize, gpa: Allocator, str: []const u8) Allocator.Error!Result {
     assert(self.isInitialized());
-    return self.nfxc(allocator, str, .nfkc);
+    return self.nfxc(gpa, str, .nfkc);
 }
 
-fn nfxc(self: *const Normalize, allocator: Allocator, str: []const u8, form: Form) Allocator.Error!Result {
+fn nfxc(self: *const Normalize, gpa: Allocator, str: []const u8, form: Form) Allocator.Error!Result {
     // Quick checks.
     if (ascii.isAsciiOnly(str)) return Result{ .slice = str };
     if (form == .nfc and isLatin1Only(str)) return Result{ .slice = str };
 
     // Decompose first.
     var dcps = if (form == .nfc)
-        try self.nfxdCodePoints(allocator, str, .nfd)
+        try self.nfxdCodePoints(gpa, str, .nfd)
     else
-        try self.nfxdCodePoints(allocator, str, .nfkd);
-    defer allocator.free(dcps);
+        try self.nfxdCodePoints(gpa, str, .nfkd);
+    defer gpa.free(dcps);
 
     // Compose
     const tombstone = 0xe000; // Start of BMP Private Use Area
@@ -571,17 +576,17 @@ fn nfxc(self: *const Normalize, allocator: Allocator, str: []const u8, form: For
         // If we have no deletions. the code point sequence
         // has been fully composed.
         if (deleted == 0) {
-            var cstr_list = std.ArrayList(u8).init(allocator);
-            defer cstr_list.deinit();
+            var cstr_list: std.ArrayList(u8) = .empty;
+            defer cstr_list.deinit(gpa);
             var buf: [4]u8 = undefined;
 
             for (dcps) |cp| {
                 if (cp == tombstone) continue; // "Delete"
                 const len = std.unicode.utf8Encode(cp, &buf) catch unreachable;
-                try cstr_list.appendSlice(buf[0..len]);
+                try cstr_list.appendSlice(gpa, buf[0..len]);
             }
 
-            return Result{ .allocated = true, .slice = try cstr_list.toOwnedSlice() };
+            return Result{ .allocated = true, .slice = try cstr_list.toOwnedSlice(gpa) };
         }
     }
 }

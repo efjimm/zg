@@ -59,11 +59,11 @@ const BlockMap = std.HashMap(
 );
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var arena_impl: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena_impl.deinit();
+    const arena = arena_impl.allocator();
 
-    var flat_map = std.AutoHashMap(u21, u5).init(allocator);
+    var flat_map: std.AutoHashMap(u21, u5) = .init(arena);
     defer flat_map.deinit();
 
     // Process DerivedGeneralCategory.txt
@@ -109,17 +109,17 @@ pub fn main() !void {
         else => |e| return in_reader.err orelse e,
     }
 
-    var blocks_map = BlockMap.init(allocator);
+    var blocks_map = BlockMap.init(arena);
     defer blocks_map.deinit();
 
-    var stage1 = std.ArrayList(u16).init(allocator);
-    defer stage1.deinit();
+    var stage1: std.ArrayList(u16) = .empty;
+    defer stage1.deinit(arena);
 
-    var stage2 = std.ArrayList(u5).init(allocator);
-    defer stage2.deinit();
+    var stage2: std.ArrayList(u5) = .empty;
+    defer stage2.deinit(arena);
 
-    var stage3 = std.ArrayList(u5).init(allocator);
-    defer stage3.deinit();
+    var stage3: std.ArrayList(u5) = .empty;
+    defer stage3.deinit(arena);
 
     var block: Block = @splat(0);
     var block_len: u16 = 0;
@@ -132,7 +132,7 @@ pub fn main() !void {
             for (stage3.items, 0..) |gci, j| {
                 if (gc == gci) break :blk j;
             }
-            try stage3.append(gc);
+            try stage3.append(arena, gc);
             break :blk stage3.items.len - 1;
         };
 
@@ -145,14 +145,14 @@ pub fn main() !void {
         const gop = try blocks_map.getOrPut(block);
         if (!gop.found_existing) {
             gop.value_ptr.* = @intCast(stage2.items.len);
-            try stage2.appendSlice(&block);
+            try stage2.appendSlice(arena, &block);
         }
 
-        try stage1.append(gop.value_ptr.*);
+        try stage1.append(arena, gop.value_ptr.*);
         block_len = 0;
     }
 
-    var args_iter = try std.process.argsWithAllocator(allocator);
+    var args_iter = try std.process.argsWithAllocator(arena);
     defer args_iter.deinit();
     _ = args_iter.skip();
     const output_path = args_iter.next() orelse @panic("No output file arg!");
@@ -173,4 +173,5 @@ pub fn main() !void {
     for (stage3.items) |i| try writer.writeInt(u8, i, endian);
 
     try out_comp.flush();
+    std.process.cleanExit();
 }
