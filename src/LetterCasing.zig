@@ -2,6 +2,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 const builtin = @import("builtin");
+const endian = builtin.cpu.arch.endian();
+const flate = std.compress.flate;
 
 const CodePointIterator = @import("code_point.zig").Iterator;
 
@@ -22,12 +24,10 @@ pub fn isInitialized(lc: *const LetterCasing) bool {
 }
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!LetterCasing {
-    const decompressor = @import("flate").inflate.decompressor;
-    const endian = builtin.cpu.arch.endian();
-
-    var fbs = std.io.fixedBufferStream(@embedFile("lettercasing"));
-    var decomp = decompressor(.raw, fbs.reader());
-    var reader = decomp.reader();
+    var r: std.Io.Reader = .fixed(@embedFile("lettercasing"));
+    var in_buf: [flate.max_window_len]u8 = undefined;
+    var d: flate.Decompress = .init(&r, .gzip, &in_buf);
+    const reader = &d.reader;
 
     const T = extern struct {
         cp: u32,
@@ -35,21 +35,22 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!LetterCasing {
         upper: i32,
     };
 
-    const case_map_size = reader.readInt(u32, endian) catch unreachable;
+    const case_map_size = reader.takeInt(u32, endian) catch unreachable;
     const buf = try allocator.alloc(T, case_map_size);
     defer allocator.free(buf);
-    const bytes_read = reader.readAll(std.mem.sliceAsBytes(buf)) catch unreachable;
+    const bytes_read = reader.readSliceShort(std.mem.sliceAsBytes(buf)) catch unreachable;
     std.debug.assert(bytes_read == std.mem.sliceAsBytes(buf).len);
 
     const max_cp = buf[buf.len - 1].cp;
 
     // Case properties
-    var cp_fbs = std.io.fixedBufferStream(@embedFile("case_prop"));
-    var cp_decomp = decompressor(.raw, cp_fbs.reader());
-    var cp_reader = cp_decomp.reader();
+    var cp_r: std.Io.Reader = .fixed(@embedFile("case_prop"));
+    var cp_in_buf: [flate.max_window_len]u8 = undefined;
+    var cp_d: flate.Decompress = .init(&cp_r, .gzip, &cp_in_buf);
+    const cp_reader = &cp_d.reader;
 
     const CpHeader = extern struct { s1_len: u16, s2_len: u16 };
-    const header = cp_reader.readStruct(CpHeader) catch unreachable;
+    const header = cp_reader.takeStruct(CpHeader, endian) catch unreachable;
     const total_size = @as(usize, header.s1_len) * 2 + header.s2_len;
 
     const bytes = try allocator.alignedAlloc(u8, .of([2]u21), @sizeOf([2]u21) * (max_cp + 1) + total_size);
@@ -68,7 +69,7 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!LetterCasing {
     }
 
     const cp_bytes = bytes[@sizeOf([2]u21) * (max_cp + 1) ..];
-    const cp_bytes_read = cp_reader.readAll(cp_bytes) catch unreachable;
+    const cp_bytes_read = cp_reader.readSliceShort(cp_bytes) catch unreachable;
     std.debug.assert(cp_bytes_read == total_size);
 
     return .{

@@ -2,6 +2,8 @@ const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 const builtin = @import("builtin");
+const endian = builtin.cpu.arch.endian();
+const flate = std.compress.flate;
 
 const options = @import("options");
 
@@ -39,18 +41,19 @@ pub fn initWithGraphemes(
     allocator: std.mem.Allocator,
     graphemes: Graphemes,
 ) std.mem.Allocator.Error!DisplayWidth {
-    var in_fbs = std.io.fixedBufferStream(@embedFile("dwp"));
-    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
-    const reader = in_decomp.reader();
+    var r: std.Io.Reader = .fixed(@embedFile("dwp"));
+    var in_buf: [flate.max_window_len]u8 = undefined;
+    var d: flate.Decompress = .init(&r, .gzip, &in_buf);
+    const reader = &d.reader;
 
     const Header = extern struct {
         s1_len: u32,
         s2_len: u32,
     };
 
-    const header = reader.readStruct(Header) catch unreachable;
+    const header = reader.takeStruct(Header, endian) catch unreachable;
     const data = try allocator.alignedAlloc(u8, .of(u16), header.s1_len * 2 + header.s2_len);
-    _ = reader.readAll(data) catch unreachable;
+    _ = reader.readSliceShort(data) catch unreachable;
     const s1: []const u16 = @ptrCast(data[0 .. header.s1_len * 2]);
     const s2: []const i4 = @ptrCast(data[header.s1_len * 2 ..]);
     std.debug.assert(s2.len == header.s2_len);

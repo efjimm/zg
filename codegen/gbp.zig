@@ -1,9 +1,7 @@
 const std = @import("std");
+const flate = std.compress.flate;
 const builtin = @import("builtin");
-
 const unicode_data_path = @import("options").unicode_data_path;
-
-const flate = @import("flate");
 
 const Indic = enum {
     none,
@@ -72,7 +70,7 @@ pub fn main() !void {
     var buf: [4096]u8 = undefined;
     var indic_reader = indic_file.reader(&buf);
 
-    while (indic_reader.interface.takeDelimiterExclusive('\n')) |line| {
+    while (try indic_reader.interface.takeDelimiter('\n') ) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         if (std.mem.indexOf(u8, line, "InCB") == null) continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
@@ -103,9 +101,6 @@ pub fn main() !void {
                 else => {},
             }
         }
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => |e| return indic_reader.err orelse e,
     }
 
     // Process GBP
@@ -114,7 +109,7 @@ pub fn main() !void {
     defer gbp_file.close();
     var gbp_reader = gbp_file.reader(&buf);
 
-    while (gbp_reader.interface.takeDelimiterExclusive('\n')) |line| {
+    while (try gbp_reader.interface.takeDelimiter('\n') ) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
 
@@ -144,9 +139,6 @@ pub fn main() !void {
                 else => {},
             }
         }
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => |e| return gbp_reader.err orelse e,
     }
 
     // Process Emoji
@@ -155,7 +147,7 @@ pub fn main() !void {
     defer emoji_file.close();
     var emoji_reader = emoji_file.reader(&buf);
 
-    while (emoji_reader.interface.takeDelimiterExclusive('\n')) |line| {
+    while (try emoji_reader.interface.takeDelimiter('\n') ) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         if (std.mem.indexOf(u8, line, "Extended_Pictographic") == null) continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
@@ -179,9 +171,6 @@ pub fn main() !void {
                 else => {},
             }
         }
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => |e| return emoji_reader.err orelse e,
     }
 
     var blocks_map = BlockMap.init(arena);
@@ -230,15 +219,9 @@ pub fn main() !void {
         block_len = 0;
     }
 
-    var args_iter = try std.process.argsWithAllocator(arena);
-    defer args_iter.deinit();
-    _ = args_iter.skip();
-    const output_path = args_iter.next() orelse @panic("No output file arg!");
-
-    var out_file = try std.fs.cwd().createFile(output_path, .{});
-    defer out_file.close();
-    var out_comp = try flate.deflate.compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
-    const writer = out_comp.writer();
+    const codegen = @import("common.zig");
+    const writer = codegen.output();
+    defer codegen.finish();
 
     const endian = @import("options").target_endian;
 
@@ -251,5 +234,5 @@ pub fn main() !void {
     for (stage2.items) |i| try writer.writeInt(u16, i, endian);
     try writer.writeAll(props_bytes);
 
-    try out_comp.flush();
+    try writer.flush();
 }

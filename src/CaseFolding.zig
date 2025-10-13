@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const endian = builtin.cpu.arch.endian();
+const flate = std.compress.flate;
 
 const ascii = @import("ascii.zig");
 const Normalize = @import("Normalize.zig");
@@ -41,10 +43,10 @@ pub fn initWithNormalize(
     allocator: std.mem.Allocator,
     normalize: Normalize,
 ) std.mem.Allocator.Error!CaseFolding {
-    const in_bytes = @embedFile("fold");
-    var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
-    var reader = in_decomp.reader();
+    var r: std.Io.Reader = .fixed(@embedFile("fold"));
+    var in_buf: [flate.max_window_len]u8 = undefined;
+    var d: flate.Decompress = .init(&r, .gzip, &in_buf);
+    const reader = &d.reader;
 
     const Header = extern struct {
         cutoff: u32,
@@ -59,13 +61,13 @@ pub fn initWithNormalize(
         cwcf_exceptions_len: u32,
     };
 
-    const header = reader.readStruct(Header) catch unreachable;
+    const header = reader.takeStruct(Header, endian) catch unreachable;
     const s3_size = header.s3_len * 4;
     const cwcf_exceptions_size = header.cwcf_exceptions_len * 4;
 
     const total_size = header.s1_len + header.s2_len + s3_size + cwcf_exceptions_size;
     const bytes = try allocator.alignedAlloc(u8, .of(u32), total_size);
-    const bytes_read = reader.read(bytes) catch unreachable;
+    const bytes_read = reader.readSliceShort(bytes) catch unreachable;
     std.debug.assert(bytes_read == total_size);
 
     const s3: []const i24 = @ptrCast(bytes[0..s3_size]);

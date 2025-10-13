@@ -1,4 +1,6 @@
 const std = @import("std");
+const flate = std.compress.flate;
+const endian = @import("builtin").cpu.arch.endian();
 
 pub const Syllable = enum { none, L, LV, LVT, V, T };
 
@@ -8,22 +10,22 @@ s2: []u3,
 const Hangul = @This();
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Hangul {
-    const in_bytes = @embedFile("hangul");
-    var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
-    var reader = in_decomp.reader();
+    var r: std.Io.Reader = .fixed(@embedFile("hangul"));
+    var in_buf: [flate.max_window_len]u8 = undefined;
+    var d: flate.Decompress = .init(&r, .gzip, &in_buf);
+    const reader = &d.reader;
 
     const Header = extern struct {
         s1_len: u16,
         s2_len: u16,
     };
 
-    const header = reader.readStruct(Header) catch unreachable;
+    const header = reader.takeStruct(Header, endian) catch unreachable;
     const s1_size = @as(usize, header.s1_len) * 2;
     const total_size = s1_size + header.s2_len;
     const bytes = try allocator.alignedAlloc(u8, .of(u16), total_size);
     errdefer allocator.free(bytes);
-    const bytes_read = reader.readAll(bytes) catch unreachable;
+    const bytes_read = reader.readSliceShort(bytes) catch unreachable;
     std.debug.assert(bytes_read == total_size);
 
     return .{

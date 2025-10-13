@@ -1,6 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 const builtin = @import("builtin");
+const endian = builtin.cpu.arch.endian();
+const flate = std.compress.flate;
 
 s1: []u16,
 s2: []u4,
@@ -8,20 +10,21 @@ s2: []u4,
 const NormProps = @This();
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!NormProps {
-    var in_fbs = std.io.fixedBufferStream(@embedFile("normp"));
-    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
-    var reader = in_decomp.reader();
+    var r: std.Io.Reader = .fixed(@embedFile("normp"));
+    var in_buf: [flate.max_window_len]u8 = undefined;
+    var d: flate.Decompress = .init(&r, .gzip, &in_buf);
+    const reader = &d.reader;
 
     const Header = extern struct {
         s1_len: u16,
         s2_len: u16,
     };
 
-    const header = reader.readStruct(Header) catch unreachable;
+    const header = reader.takeStruct(Header, endian) catch unreachable;
     const total_size = @as(usize, header.s1_len) * 2 + header.s2_len;
     const bytes = try allocator.alignedAlloc(u8, .of(u16), total_size);
     errdefer allocator.free(bytes);
-    const bytes_read = reader.readAll(bytes) catch unreachable;
+    const bytes_read = reader.readSliceShort(bytes) catch unreachable;
     std.debug.assert(bytes_read == total_size);
 
     return .{

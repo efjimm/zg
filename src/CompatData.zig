@@ -1,5 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const flate = std.compress.flate;
+const endian = builtin.cpu.arch.endian();
 
 const magic = @import("magic");
 
@@ -20,10 +22,10 @@ cps: []u21,
 const CompatData = @This();
 
 pub fn init(allocator: std.mem.Allocator) !CompatData {
-    const in_bytes = @embedFile("compat");
-    var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
-    var reader = in_decomp.reader();
+    var r: std.Io.Reader = .fixed(@embedFile("compat"));
+    var in_buf: [flate.max_window_len]u8 = undefined;
+    var d: flate.Decompress = .init(&r, .gzip, &in_buf);
+    const reader = &d.reader;
 
     const Header = extern struct {
         items_len: u32,
@@ -36,11 +38,11 @@ pub fn init(allocator: std.mem.Allocator) !CompatData {
         len: u8,
     };
 
-    const header = reader.readStruct(Header) catch unreachable;
+    const header = reader.takeStruct(Header, endian) catch unreachable;
     const items = try allocator.alloc(Item, header.items_len);
     defer allocator.free(items);
 
-    var bytes_read = reader.readAll(std.mem.sliceAsBytes(items)) catch unreachable;
+    var bytes_read = reader.readSliceShort(std.mem.sliceAsBytes(items)) catch unreachable;
     std.debug.assert(bytes_read == items.len * 4);
 
     const bytes = try allocator.alignedAlloc(
@@ -55,7 +57,7 @@ pub fn init(allocator: std.mem.Allocator) !CompatData {
     const cps: []u21 = @ptrCast(@alignCast(bytes[cps_start..]));
     @memset(nfkd, .{ .offset = 0, .len = 0 });
 
-    bytes_read = reader.readAll(std.mem.sliceAsBytes(cps)) catch unreachable;
+    bytes_read = reader.readSliceShort(std.mem.sliceAsBytes(cps)) catch unreachable;
     std.debug.assert(bytes_read == cps.len * @sizeOf(u21));
 
     var offset: Slice.Offset = 0;

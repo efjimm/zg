@@ -650,7 +650,7 @@ pub fn isLatin1Only(str: []const u8) bool {
         var v1: Vec = undefined;
         const saved_cp_i = cp_iter.i;
 
-        for (0..vec_len) |i| {
+        inline for (0..vec_len) |i| {
             if (cp_iter.next()) |cp| {
                 v1[i] = cp.code;
             } else {

@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const unicode_data_path = @import("options").unicode_data_path;
-const flate = @import("flate");
 
 const block_size = 256;
 const Block = [block_size]u3;
@@ -39,7 +38,7 @@ pub fn main() !void {
     defer in_file.close();
     var in_reader = in_file.reader(&buf);
 
-    while (in_reader.interface.takeDelimiterExclusive('\n')) |line| {
+    while (try in_reader.interface.takeDelimiter('\n') ) |line| {
         if (line.len == 0 or line[0] == '#') continue;
 
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
@@ -80,10 +79,6 @@ pub fn main() !void {
                 else => {},
             }
         }
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        error.ReadFailed => return in_reader.err.?,
-        else => |e| return e,
     }
 
     var blocks_map = BlockMap.init(arena);
@@ -113,16 +108,9 @@ pub fn main() !void {
         block_len = 0;
     }
 
-    var args_iter = try std.process.argsWithAllocator(arena);
-    defer args_iter.deinit();
-    _ = args_iter.skip();
-    const output_path = args_iter.next() orelse @panic("No output file arg!");
-
-    const compressor = flate.deflate.compressor;
-    var out_file = try std.fs.cwd().createFile(output_path, .{});
-    defer out_file.close();
-    var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
-    const writer = out_comp.writer();
+    const codegen = @import("common.zig");
+    const writer = codegen.output();
+    defer codegen.finish();
 
     const endian = @import("options").target_endian;
     try writer.writeInt(u16, @intCast(stage1.items.len), endian);
@@ -130,5 +118,5 @@ pub fn main() !void {
     for (stage1.items) |i| try writer.writeInt(u16, i, endian);
     for (stage2.items) |i| try writer.writeInt(u8, i, endian);
 
-    try out_comp.flush();
+    try writer.flush();
 }

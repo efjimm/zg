@@ -1,9 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-
 const unicode_data_path = @import("options").unicode_data_path;
-
-const flate = @import("flate");
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -18,16 +15,9 @@ pub fn main() !void {
         "Cased",
     });
 
-    var args_iter = try std.process.argsWithAllocator(allocator);
-    defer args_iter.deinit();
-    _ = args_iter.skip();
-    const output_path = args_iter.next() orelse @panic("No output file arg!");
-
-    const compressor = flate.deflate.compressor;
-    var out_file = try std.fs.cwd().createFile(output_path, .{});
-    defer out_file.close();
-    var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
-    const writer = out_comp.writer();
+    const codegen = @import("common.zig");
+    const writer = codegen.output();
+    defer codegen.finish();
 
     const endian = @import("options").target_endian;
     try writer.writeInt(u16, @intCast(s1.len), endian);
@@ -35,5 +25,5 @@ pub fn main() !void {
     for (s1) |i| try writer.writeInt(u16, i, endian);
     try writer.writeAll(s2);
 
-    try out_comp.flush();
+    try writer.flush();
 }

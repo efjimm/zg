@@ -1,9 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-
 const unicode_data_path = @import("options").unicode_data_path;
-
-const flate = @import("flate");
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -17,16 +14,9 @@ pub fn main() !void {
     var in_buf: [4096]u8 = undefined;
     var in_reader = in_file.reader(&in_buf);
 
-    var args_iter = try std.process.argsWithAllocator(allocator);
-    defer args_iter.deinit();
-    _ = args_iter.skip();
-    const output_path = args_iter.next() orelse @panic("No output file arg!");
-
-    const compressor = flate.deflate.compressor;
-    var out_file = try std.fs.cwd().createFile(output_path, .{});
-    defer out_file.close();
-    var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
-    const writer = out_comp.writer();
+    const codegen = @import("common.zig");
+    const writer = codegen.output();
+    defer codegen.finish();
 
     const endian = @import("options").target_endian;
 
@@ -40,7 +30,7 @@ pub fn main() !void {
     var out_buf: std.ArrayListUnmanaged(T) = .empty;
     try out_buf.ensureTotalCapacity(allocator, 10_000);
 
-    lines: while (in_reader.interface.takeDelimiterExclusive('\n')) |line| {
+    lines: while (try in_reader.interface.takeDelimiter('\n') ) |line| {
         if (line.len == 0) continue;
 
         var field_iter = std.mem.splitScalar(u8, line, ';');
@@ -77,14 +67,11 @@ pub fn main() !void {
         if (lower != 0 or upper != 0) {
             try out_buf.append(allocator, .{ .cp = cp, .lower = lower, .upper = upper });
         }
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => |e| return in_reader.err orelse e,
     }
 
     try writer.writeInt(u32, @intCast(out_buf.items.len), endian);
     for (out_buf.items) |arr| {
-        try writer.writeStruct(arr);
+        try writer.writeStruct(arr, endian);
     }
-    try out_comp.flush();
+    try writer.flush();
 }

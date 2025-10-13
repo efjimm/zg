@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const endian = @import("builtin").target.cpu.arch.endian();
 
 data: [*]const u8,
 s1_size: u32,
@@ -19,10 +20,10 @@ pub fn isInitialized(s: *const Scripts) bool {
 }
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Scripts {
-    const in_bytes = @embedFile("scripts");
-    var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
-    var reader = in_decomp.reader();
+    var in: std.Io.Reader = .fixed(@embedFile("scripts"));
+    var in_buf: [std.compress.flate.max_window_len]u8 = undefined;
+    var d = std.compress.flate.Decompress.init(&in, .gzip, &in_buf);
+    const reader = &d.reader;
 
     // The generated data should match the target's endianness.
     const Header = extern struct {
@@ -31,10 +32,10 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Scripts {
         s3_len: u16,
     };
 
-    const header: Header = reader.readStruct(Header) catch unreachable;
+    const header: Header = reader.takeStruct(Header, endian) catch unreachable;
     const total_len = @as(usize, header.s1_len) * 2 + header.s2_len + header.s3_len;
     const bytes = try allocator.alignedAlloc(u8, .of(u16), total_len);
-    const bytes_read = reader.readAll(bytes) catch unreachable;
+    const bytes_read = reader.readSliceShort(bytes) catch unreachable;
     std.debug.assert(bytes_read == bytes.len);
 
     return .{
@@ -54,7 +55,7 @@ pub fn deinit(self: Scripts, allocator: std.mem.Allocator) void {
 /// Lookup the Script type for `cp`.
 pub fn script(self: Scripts, cp: u21) ?Script {
     assert(self.isInitialized());
-    const s1: []const u16 = @alignCast(@ptrCast(self.data[0..self.s1_size]));
+    const s1: []const u16 = @ptrCast(@alignCast(self.data[0..self.s1_size]));
     const s2 = self.data[self.s1_size..][0..self.s2_size];
     const s3 = self.data[self.s1_size + self.s2_size ..][0..self.s3_size];
 

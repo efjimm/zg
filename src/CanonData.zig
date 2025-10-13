@@ -1,5 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const endian = builtin.cpu.arch.endian();
+const flate = std.compress.flate;
 
 const magic = @import("magic");
 const options = @import("options");
@@ -16,10 +18,10 @@ cps: []const u21,
 const CanonData = @This();
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!CanonData {
-    const in_bytes = @embedFile("canon");
-    var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
-    var reader = in_decomp.reader();
+    var r: std.Io.Reader = .fixed(@embedFile("canon"));
+    var in_buf: [flate.max_window_len]u8 = undefined;
+    var d: flate.Decompress = .init(&r, .gzip, &in_buf);
+    const reader = &d.reader;
 
     const Header = extern struct {
         nfd_len: u32,
@@ -32,13 +34,13 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!CanonData {
         len: u8,
     };
 
-    const header = reader.readStruct(Header) catch unreachable;
+    const header = reader.takeStruct(Header, endian) catch unreachable;
     const idk_size = @sizeOf(Nfd) * @as(usize, header.nfd_len);
     const cps_size = @sizeOf(u21) * @as(usize, header.cps_len);
     const nfd_cps = try allocator.alloc(Nfd, header.nfd_len);
     defer allocator.free(nfd_cps);
 
-    var bytes_read = reader.readAll(std.mem.sliceAsBytes(nfd_cps)) catch unreachable;
+    var bytes_read = reader.readSliceShort(std.mem.sliceAsBytes(nfd_cps)) catch unreachable;
     std.debug.assert(bytes_read == idk_size);
     const max_cp = nfd_cps[nfd_cps.len - 1].cp;
 
@@ -47,7 +49,7 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!CanonData {
     const total_size = nfd_size + cps_size + hashMapAllocSize([2]u21, u21, map_cap);
     const bytes = try allocator.alignedAlloc(u8, .of(u64), total_size);
     errdefer allocator.free(bytes);
-    bytes_read = reader.readAll(bytes[0..cps_size]) catch unreachable;
+    bytes_read = reader.readSliceShort(bytes[0..cps_size]) catch unreachable;
     std.debug.assert(bytes_read == cps_size);
 
     const cps: []const u21 = @ptrCast(bytes[0..cps_size]);

@@ -55,7 +55,7 @@ test "Unicode normalization tests" {
     var line_no: usize = 0;
     var cp_buf: [4]u8 = undefined;
 
-    while (input_stream.interface.takeDelimiterExclusive('\n')) |line| {
+    while (try input_stream.interface.takeDelimiter('\n')) |line| {
         line_no += 1;
         // Skip comments or empty lines.
         if (line.len == 0 or line[0] == '#' or line[0] == '@') continue;
@@ -146,9 +146,6 @@ test "Unicode normalization tests" {
                 continue;
             }
         }
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => |e| return input_stream.err orelse e,
     }
 }
 
@@ -164,7 +161,7 @@ test "Segmentation GraphemeIterator" {
 
     var line_no: usize = 1;
 
-    while (input_stream.interface.takeDelimiterExclusive('\n')) |raw| : (line_no += 1) {
+    while (try input_stream.interface.takeDelimiter('\n')) |raw| : (line_no += 1) {
         // Skip comments or empty lines.
         if (raw.len == 0 or raw[0] == '#' or raw[0] == '@') continue;
 
@@ -212,9 +209,6 @@ test "Segmentation GraphemeIterator" {
                 got_gc.bytes(all_bytes.items),
             );
         }
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => |e| return input_stream.err orelse e,
     }
 }
 
@@ -230,7 +224,7 @@ test "Segmentation ReverseGraphemeIterator" {
 
     var line_no: usize = 1;
 
-    while (input_stream.interface.takeDelimiterExclusive('\n')) |raw| : (line_no += 1) {
+    while (try input_stream.interface.takeDelimiter('\n')) |raw| : (line_no += 1) {
         // Skip comments or empty lines.
         if (raw.len == 0 or raw[0] == '#' or raw[0] == '@') continue;
 
@@ -288,8 +282,5 @@ test "Segmentation ReverseGraphemeIterator" {
                 return err;
             };
         }
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => |e| return input_stream.err orelse e,
     }
 }

@@ -1,9 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-
 const unicode_data_path = @import("options").unicode_data_path;
-
-const flate = @import("flate");
 
 pub fn main() !void {
     const gpa = std.heap.smp_allocator;
@@ -18,7 +15,7 @@ pub fn main() !void {
     var props_map = std.AutoHashMap(u21, void).init(gpa);
     defer props_map.deinit();
 
-    props_lines: while (props_reader.interface.takeDelimiterExclusive('\n')) |line| {
+    props_lines: while (try props_reader.interface.takeDelimiter('\n') ) |line| {
         if (line.len == 0 or line[0] == '#') continue;
 
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
@@ -49,9 +46,6 @@ pub fn main() !void {
                 else => {},
             }
         }
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => |e| return props_reader.err orelse e,
     }
 
     var codepoint_mapping = std.AutoArrayHashMap(u21, [3]u21).init(gpa);
@@ -63,7 +57,7 @@ pub fn main() !void {
     defer cp_file.close();
     var cp_reader = cp_file.reader(&buf);
 
-    while (cp_reader.interface.takeDelimiterExclusive('\n')) |line| {
+    while (try cp_reader.interface.takeDelimiter('\n') ) |line| {
         if (line.len == 0 or line[0] == '#') continue;
 
         var field_it = std.mem.splitScalar(u8, line, ';');
@@ -84,9 +78,6 @@ pub fn main() !void {
         }
 
         try codepoint_mapping.putNoClobber(codepoint, mapping_buf);
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => |e| return cp_reader.err orelse e,
     }
 
     var changes_when_casefolded_exceptions: std.ArrayList(u21) = .empty;
@@ -219,17 +210,9 @@ pub fn main() !void {
             @memcpy(stage2[i * 256 ..][0..256], &key);
         }
 
-        // Write out compressed binary data file.
-        var args_iter = try std.process.argsWithAllocator(gpa);
-        defer args_iter.deinit();
-        _ = args_iter.skip();
-        const output_path = args_iter.next() orelse @panic("No output file arg!");
-
-        const compressor = flate.deflate.compressor;
-        var out_file = try std.fs.cwd().createFile(output_path, .{});
-        defer out_file.close();
-        var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
-        const writer = out_comp.writer();
+        const codegen = @import("common.zig");
+        const writer = codegen.output();
+        defer codegen.finish();
 
         const endian = @import("options").target_endian;
         // Table metadata.
@@ -251,6 +234,6 @@ pub fn main() !void {
         try writer.writeAll(meaningful_stage1);
         try writer.writeAll(stage2);
 
-        try out_comp.flush();
+        try writer.flush();
     }
 }

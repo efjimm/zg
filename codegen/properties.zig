@@ -3,8 +3,6 @@ const builtin = @import("builtin");
 
 const unicode_data_path = @import("options").unicode_data_path;
 
-const flate = @import("flate");
-
 const block_size = 256;
 const Block = [block_size]u8;
 
@@ -39,7 +37,7 @@ pub fn fromFile(
     var in_buf: [4096]u8 = undefined;
     var in_reader = in_file.reader(&in_buf);
 
-    while (in_reader.interface.takeDelimiterExclusive('\n')) |line| {
+    while (try in_reader.interface.takeDelimiter('\n') ) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
 
@@ -77,9 +75,6 @@ pub fn fromFile(
                 else => {},
             }
         }
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => |e| return in_reader.err orelse e,
     }
 
     var blocks_map = BlockMap.init(gpa);
@@ -152,16 +147,9 @@ pub fn main() !void {
         "Decimal",
     });
 
-    var args_iter = try std.process.argsWithAllocator(arena);
-    defer args_iter.deinit();
-    _ = args_iter.skip();
-    const output_path = args_iter.next() orelse @panic("No output file arg!");
-
-    const compressor = flate.deflate.compressor;
-    var out_file = try std.fs.cwd().createFile(output_path, .{});
-    defer out_file.close();
-    var out_comp = try compressor(.raw, out_file.deprecatedWriter(), .{ .level = .best });
-    const writer = out_comp.writer();
+    const codegen = @import("common.zig");
+    const writer = codegen.output();
+    defer codegen.finish();
 
     const endian = @import("options").target_endian;
     try writer.writeInt(u16, @intCast(s1.len), endian);
@@ -177,5 +165,5 @@ pub fn main() !void {
     for (s5) |i| try writer.writeInt(u16, i, endian);
     try writer.writeAll(s6);
 
-    try out_comp.flush();
+    try writer.flush();
 }

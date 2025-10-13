@@ -1,6 +1,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
+const endian = builtin.cpu.arch.endian();
+const flate = std.compress.flate;
 
 s1: []const u16,
 s2: []const u5,
@@ -53,10 +55,10 @@ pub fn isInitialized(g: *const GeneralCategories) bool {
 }
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!GeneralCategories {
-    const in_bytes = @embedFile("gencat");
-    var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
-    var reader = in_decomp.reader();
+    var r: std.Io.Reader = .fixed(@embedFile("gencat"));
+    var in_buf: [flate.max_window_len]u8 = undefined;
+    var d: flate.Decompress = .init(&r, .gzip, &in_buf);
+    const reader = &d.reader;
 
     const Header = extern struct {
         s1_len: u32,
@@ -64,10 +66,10 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!GeneralCategor
         s3_len: u32,
     };
 
-    const header = reader.readStruct(Header) catch unreachable;
+    const header = reader.takeStruct(Header, endian) catch unreachable;
     const total_size = header.s1_len * 2 + header.s2_len + header.s3_len;
     const bytes = try allocator.alignedAlloc(u8, .of(u16), total_size);
-    const bytes_read = reader.readAll(bytes) catch unreachable;
+    const bytes_read = reader.readSliceShort(bytes) catch unreachable;
     std.debug.assert(bytes_read == total_size);
 
     const s1: []const u16 = @ptrCast(bytes[0 .. header.s1_len * 2]);

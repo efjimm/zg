@@ -1,5 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const endian = builtin.cpu.arch.endian();
+const flate = std.compress.flate;
 
 s1: []const u16,
 s2: []const u8,
@@ -7,19 +9,19 @@ s2: []const u8,
 const CombiningData = @This();
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!CombiningData {
-    const in_bytes = @embedFile("ccc");
-    var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = @import("flate").inflate.decompressor(.raw, in_fbs.reader());
-    var reader = in_decomp.reader();
+    var r: std.Io.Reader = .fixed(@embedFile("ccc"));
+    var in_buf: [flate.max_window_len]u8 = undefined;
+    var d: flate.Decompress = .init(&r, .gzip, &in_buf);
+    const reader = &d.reader;
 
     const Header = extern struct {
         s1_len: u32,
         s2_len: u32,
     };
 
-    const header = reader.readStruct(Header) catch unreachable;
+    const header = reader.takeStruct(Header, endian) catch unreachable;
     const bytes = try allocator.alignedAlloc(u8, .of(u16), header.s1_len * 2 + header.s2_len);
-    const bytes_read = reader.readAll(bytes) catch unreachable;
+    const bytes_read = reader.readSliceShort(bytes) catch unreachable;
     std.debug.assert(bytes_read == header.s1_len * 2 + header.s2_len);
 
     const s1: []const u16 = @ptrCast(bytes[0 .. header.s1_len * 2]);

@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
+const endian = builtin.target.cpu.arch.endian();
 
 const CodePoint = @import("code_point.zig").CodePoint;
 const CodePointIterator = @import("code_point.zig").Iterator;
@@ -22,11 +23,10 @@ pub fn isInitialized(g: *const Graphemes) bool {
 }
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Graphemes {
-    const decompressor = @import("flate").inflate.decompressor;
-    const in_bytes = @embedFile("gbp");
-    var in_fbs = std.io.fixedBufferStream(in_bytes);
-    var in_decomp = decompressor(.raw, in_fbs.reader());
-    var reader = in_decomp.reader();
+    var r: std.Io.Reader = .fixed(@embedFile("gbp"));
+    var in_buf: [std.compress.flate.max_window_len]u8 = undefined;
+    var d = std.compress.flate.Decompress.init(&r, .gzip, &in_buf);
+    const reader = &d.reader;
 
     const Header = extern struct {
         s1_len: u32,
@@ -34,10 +34,10 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Graphemes {
         s3_len: u32,
     };
 
-    const header = reader.readStruct(Header) catch unreachable;
+    const header = reader.takeStruct(Header, endian) catch @panic("Guh");
     const total_size = header.s1_len * 2 + header.s2_len * 2 + header.s3_len;
     const bytes = try allocator.alignedAlloc(u8, .of(u16), total_size);
-    const bytes_read = reader.readAll(bytes) catch unreachable;
+    const bytes_read = reader.readSliceShort(bytes) catch unreachable;
     std.debug.assert(bytes_read == total_size);
 
     const s1_size = header.s1_len * 2;

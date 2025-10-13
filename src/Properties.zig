@@ -3,6 +3,8 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const builtin = @import("builtin");
+const endian = builtin.cpu.arch.endian();
+const flate = std.compress.flate;
 
 core_s1: []u16,
 core_s2: []u8,
@@ -24,12 +26,10 @@ pub fn isInitialized(p: *const Properties) bool {
 }
 
 pub fn init(allocator: Allocator) Allocator.Error!Properties {
-    const decompressor = @import("flate").inflate.decompressor;
-
-    // Process DerivedCoreProperties.txt
-    var fbs = std.io.fixedBufferStream(@embedFile("properties"));
-    var decomp = decompressor(.raw, fbs.reader());
-    var reader = decomp.reader();
+    var r: std.Io.Reader = .fixed(@embedFile("properties"));
+    var in_buf: [flate.max_window_len]u8 = undefined;
+    var d: flate.Decompress = .init(&r, .gzip, &in_buf);
+    const reader = &d.reader;
 
     const Header = extern struct {
         s1_len: u16,
@@ -40,9 +40,9 @@ pub fn init(allocator: Allocator) Allocator.Error!Properties {
         }
     };
 
-    const core_header = reader.readStruct(Header) catch unreachable;
-    const props_header = reader.readStruct(Header) catch unreachable;
-    const num_header = reader.readStruct(Header) catch unreachable;
+    const core_header = reader.takeStruct(Header, endian) catch unreachable;
+    const props_header = reader.takeStruct(Header, endian) catch unreachable;
+    const num_header = reader.takeStruct(Header, endian) catch unreachable;
 
     const total_size =
         std.mem.alignForward(usize, core_header.totalSize(), 2) +
@@ -58,13 +58,13 @@ pub fn init(allocator: Allocator) Allocator.Error!Properties {
     const props_bytes = bytes[props_bytes_start..][0..props_header.totalSize()];
     const num_bytes = bytes[num_bytes_start..][0..num_header.totalSize()];
 
-    var bytes_read = reader.readAll(core_bytes) catch unreachable;
+    var bytes_read = reader.readSliceShort(core_bytes) catch unreachable;
     std.debug.assert(bytes_read == core_bytes.len);
 
-    bytes_read = reader.readAll(props_bytes) catch unreachable;
+    bytes_read = reader.readSliceShort(props_bytes) catch unreachable;
     std.debug.assert(bytes_read == props_bytes.len);
 
-    bytes_read = reader.readAll(num_bytes) catch unreachable;
+    bytes_read = reader.readSliceShort(num_bytes) catch unreachable;
     std.debug.assert(bytes_read == num_bytes.len);
 
     return .{

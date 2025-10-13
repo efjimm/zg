@@ -20,12 +20,6 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const flate = b.createModule(.{
-        .root_source_file = b.path("flate/flate.zig"),
-        .optimize = .Debug,
-        .target = b.graph.host,
-    });
-
     // Display width
     const cjk = b.option(bool, "cjk", "Ambiguous code points are wide (display width: 2).") orelse false;
     const options = b.addOptions();
@@ -70,7 +64,6 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "options", .module = options_mod },
-            .{ .name = "flate", .module = flate },
         },
     });
 
@@ -86,7 +79,6 @@ pub fn build(b: *std.Build) !void {
                 .optimize = .Debug,
                 .imports = &.{
                     .{ .name = "options", .module = options_mod },
-                    .{ .name = "flate", .module = flate },
                 },
             }),
         });
