@@ -25,9 +25,13 @@ const BlockMap = std.HashMap(
 );
 
 pub fn main() !void {
-    var arena_impl = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_impl.deinit();
-    const arena = arena_impl.allocator();
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var threaded: std.Io.Threaded = .init(arena);
+    defer threaded.deinit();
+    const io = threaded.ioBasic();
 
     var flat_map = std.AutoHashMap(u21, i4).init(arena);
     defer flat_map.deinit();
@@ -37,9 +41,9 @@ pub fn main() !void {
     var deaw_file = try std.fs.cwd().openFile(deaw_data_path, .{});
     defer deaw_file.close();
     var buf: [4096]u8 = undefined;
-    var deaw_reader = deaw_file.reader(&buf);
+    var deaw_reader = deaw_file.reader(io, &buf);
 
-    while (try deaw_reader.interface.takeDelimiter('\n') ) |line| {
+    while (try deaw_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0) continue;
 
         // @missing ranges
@@ -94,9 +98,9 @@ pub fn main() !void {
     const dgc_data_path = unicode_data_path ++ "/extracted/DerivedGeneralCategory.txt";
     var dgc_file = try std.fs.cwd().openFile(dgc_data_path, .{});
     defer dgc_file.close();
-    var dgc_reader = dgc_file.reader(&buf);
+    var dgc_reader = dgc_file.reader(io, &buf);
 
-    while (try dgc_reader.interface.takeDelimiter('\n') ) |line| {
+    while (try dgc_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
 
@@ -230,4 +234,5 @@ pub fn main() !void {
     for (stage2.items) |i| try writer.writeInt(i8, i, endian);
 
     try writer.flush();
+    std.process.cleanExit();
 }

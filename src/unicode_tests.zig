@@ -1,11 +1,12 @@
 const std = @import("std");
 const fmt = std.fmt;
 const fs = std.fs;
-const io = std.io;
+const Io = std.Io;
 const heap = std.heap;
 const mem = std.mem;
 const testing = std.testing;
 const unicode = std.unicode;
+const io = std.testing.io;
 
 const zg = @import("zg");
 const Graphemes = zg.Graphemes;
@@ -50,7 +51,7 @@ test "Unicode normalization tests" {
     var file = try fs.cwd().openFile("data/unicode/NormalizationTest.txt", .{});
     defer file.close();
     var buf: [4096]u8 = undefined;
-    var input_stream = file.reader(&buf);
+    var input_stream = file.reader(io, &buf);
 
     var line_no: usize = 0;
     var cp_buf: [4]u8 = undefined;
@@ -154,7 +155,7 @@ test "Segmentation GraphemeIterator" {
     var file = try std.fs.cwd().openFile("data/unicode/auxiliary/GraphemeBreakTest.txt", .{});
     defer file.close();
     var buf: [4096]u8 = undefined;
-    var input_stream = file.reader(&buf);
+    var input_stream = file.reader(io, &buf);
 
     const data = try Graphemes.init(allocator);
     defer data.deinit(allocator);
@@ -217,7 +218,7 @@ test "Segmentation ReverseGraphemeIterator" {
     var file = try std.fs.cwd().openFile("data/unicode/auxiliary/GraphemeBreakTest.txt", .{});
     defer file.close();
     var buf: [4096]u8 = undefined;
-    var input_stream = file.reader(&buf);
+    var input_stream = file.reader(io, &buf);
 
     const data = try Graphemes.init(allocator);
     defer data.deinit(allocator);

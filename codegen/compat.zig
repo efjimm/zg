@@ -3,16 +3,20 @@ const builtin = @import("builtin");
 const unicode_data_path = @import("options").unicode_data_path;
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var threaded: std.Io.Threaded = .init(arena);
+    defer threaded.deinit();
+    const io = threaded.ioBasic();
 
     // Process UnicodeData.txt
     const unicode_data = unicode_data_path ++ "/UnicodeData.txt";
     var in_file = try std.fs.cwd().openFile(unicode_data, .{});
     defer in_file.close();
     var in_buf: [4096]u8 = undefined;
-    var in_reader = in_file.reader(&in_buf);
+    var in_reader = in_file.reader(io, &in_buf);
 
     const codegen = @import("common.zig");
     const writer = codegen.output();
@@ -28,10 +32,10 @@ pub fn main() !void {
     var out_cps: std.ArrayListUnmanaged(u32) = .empty;
     var max_cp: u24 = 0;
 
-    try items.ensureTotalCapacity(allocator, 10_000);
-    try out_cps.ensureTotalCapacity(allocator, 10_000);
+    try items.ensureTotalCapacity(arena, 10_000);
+    try out_cps.ensureTotalCapacity(arena, 10_000);
 
-    lines: while (try in_reader.interface.takeDelimiter('\n') ) |line| {
+    lines: while (try in_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0) continue;
 
         var field_iter = std.mem.splitScalar(u8, line, ';');
@@ -64,11 +68,11 @@ pub fn main() !void {
 
         std.debug.assert(cps.items.len >= 1);
         max_cp = index_cp;
-        try items.append(allocator, .{
+        try items.append(arena, .{
             .cp = index_cp,
             .len = @intCast(cps.items.len),
         });
-        try out_cps.appendSlice(allocator, cps.items);
+        try out_cps.appendSlice(arena, cps.items);
     }
 
     try writer.writeInt(u32, @intCast(items.items.len), endian);
@@ -78,4 +82,5 @@ pub fn main() !void {
     for (out_cps.items) |cp| try writer.writeInt(u32, cp, endian);
 
     try writer.flush();
+    std.process.cleanExit();
 }

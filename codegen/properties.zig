@@ -25,6 +25,7 @@ const BlockMap = std.HashMap(
 
 pub fn fromFile(
     gpa: std.mem.Allocator,
+    io: std.Io,
     filepath: []const u8,
     field_names: []const []const u8,
 ) !struct { []const u16, []const u8 } {
@@ -35,9 +36,9 @@ pub fn fromFile(
     const in_file = try std.fs.cwd().openFile(filepath, .{});
     defer in_file.close();
     var in_buf: [4096]u8 = undefined;
-    var in_reader = in_file.reader(&in_buf);
+    var in_reader = in_file.reader(io, &in_buf);
 
-    while (try in_reader.interface.takeDelimiter('\n') ) |line| {
+    while (try in_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
 
@@ -115,9 +116,13 @@ pub fn fromFile(
     };
 }
 pub fn main() !void {
-    var arena_impl = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_impl.deinit();
-    const arena = arena_impl.allocator();
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var threaded: std.Io.Threaded = .init(arena);
+    defer threaded.deinit();
+    const io = threaded.ioBasic();
 
     var flat_map = std.AutoHashMap(u21, u8).init(arena);
     defer flat_map.deinit();
@@ -126,7 +131,7 @@ pub fn main() !void {
     const props_path = unicode_data_path ++ "/PropList.txt";
     const num_path = unicode_data_path ++ "/extracted/DerivedNumericType.txt";
 
-    const s1, const s2 = try fromFile(arena, core_path, &.{
+    const s1, const s2 = try fromFile(arena, io, core_path, &.{
         "Math",
         "Alphabetic",
         "ID_Start",
@@ -135,13 +140,13 @@ pub fn main() !void {
         "XID_Continue",
     });
 
-    const s3, const s4 = try fromFile(arena, props_path, &.{
+    const s3, const s4 = try fromFile(arena, io, props_path, &.{
         "White_Space",
         "Hex_Digit",
         "Diacritic",
     });
 
-    const s5, const s6 = try fromFile(arena, num_path, &.{
+    const s5, const s6 = try fromFile(arena, io, num_path, &.{
         "Numeric",
         "Digit",
         "Decimal",
@@ -166,4 +171,5 @@ pub fn main() !void {
     try writer.writeAll(s6);
 
     try writer.flush();
+    std.process.cleanExit();
 }

@@ -3,19 +3,25 @@ const builtin = @import("builtin");
 const unicode_data_path = @import("options").unicode_data_path;
 
 pub fn main() !void {
-    const gpa = std.heap.smp_allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var threaded: std.Io.Threaded = .init(arena);
+    defer threaded.deinit();
+    const io = threaded.ioBasic();
 
     // Process DerivedCoreProperties.txt
     const props_data_path = unicode_data_path ++ "/DerivedCoreProperties.txt";
     var props_file = try std.fs.cwd().openFile(props_data_path, .{});
     defer props_file.close();
     var buf: [4096]u8 = undefined;
-    var props_reader = props_file.reader(&buf);
+    var props_reader = props_file.reader(io, &buf);
 
-    var props_map = std.AutoHashMap(u21, void).init(gpa);
+    var props_map = std.AutoHashMap(u21, void).init(arena);
     defer props_map.deinit();
 
-    props_lines: while (try props_reader.interface.takeDelimiter('\n') ) |line| {
+    props_lines: while (try props_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
 
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
@@ -48,16 +54,16 @@ pub fn main() !void {
         }
     }
 
-    var codepoint_mapping = std.AutoArrayHashMap(u21, [3]u21).init(gpa);
+    var codepoint_mapping = std.AutoArrayHashMap(u21, [3]u21).init(arena);
     defer codepoint_mapping.deinit();
 
     // Process CaseFolding.txt
     const casefolding_data_path = unicode_data_path ++ "/CaseFolding.txt";
     var cp_file = try std.fs.cwd().openFile(casefolding_data_path, .{});
     defer cp_file.close();
-    var cp_reader = cp_file.reader(&buf);
+    var cp_reader = cp_file.reader(io, &buf);
 
-    while (try cp_reader.interface.takeDelimiter('\n') ) |line| {
+    while (try cp_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
 
         var field_it = std.mem.splitScalar(u8, line, ';');
@@ -86,14 +92,14 @@ pub fn main() !void {
         // but not vice versa.
         for (codepoint_mapping.keys()) |codepoint| {
             if (props_map.get(codepoint) == null) {
-                try changes_when_casefolded_exceptions.append(gpa, codepoint);
+                try changes_when_casefolded_exceptions.append(arena, codepoint);
             }
         }
     }
 
-    var offset_to_index = std.AutoHashMap(i32, u8).init(gpa);
+    var offset_to_index = std.AutoHashMap(i32, u8).init(arena);
     defer offset_to_index.deinit();
-    var unique_offsets = std.AutoArrayHashMap(i32, u32).init(gpa);
+    var unique_offsets = std.AutoArrayHashMap(i32, u32).init(arena);
     defer unique_offsets.deinit();
 
     // First pass
@@ -129,9 +135,9 @@ pub fn main() !void {
         }
     }
 
-    var mappings_to_index = std.AutoArrayHashMap([3]u21, u8).init(gpa);
+    var mappings_to_index = std.AutoArrayHashMap([3]u21, u8).init(arena);
     defer mappings_to_index.deinit();
-    var codepoint_to_index = std.AutoHashMap(u21, u8).init(gpa);
+    var codepoint_to_index = std.AutoHashMap(u21, u8).init(arena);
     defer codepoint_to_index.deinit();
 
     // Second pass
@@ -161,7 +167,7 @@ pub fn main() !void {
     // Build the stage1/stage2/stage3 arrays and output them
     {
         const Block = [256]u8;
-        var stage2_blocks = std.AutoArrayHashMap(Block, void).init(gpa);
+        var stage2_blocks = std.AutoArrayHashMap(Block, void).init(arena);
         defer stage2_blocks.deinit();
 
         const empty_block: Block = @splat(0);
@@ -190,8 +196,8 @@ pub fn main() !void {
 
         var index: usize = 0;
         const stage3_elems = unique_offsets.count() + mappings_to_index.count() * 3;
-        var stage3 = try gpa.alloc(i24, stage3_elems);
-        defer gpa.free(stage3);
+        var stage3 = try arena.alloc(i24, stage3_elems);
+        defer arena.free(stage3);
         for (unique_offsets.keys()) |key| {
             stage3[index] = @intCast(key);
             index += 1;
@@ -204,8 +210,8 @@ pub fn main() !void {
         }
 
         const stage2_elems = stage2_blocks.count() * 256;
-        var stage2 = try gpa.alloc(u8, stage2_elems);
-        defer gpa.free(stage2);
+        var stage2 = try arena.alloc(u8, stage2_elems);
+        defer arena.free(stage2);
         for (stage2_blocks.keys(), 0..) |key, i| {
             @memcpy(stage2[i * 256 ..][0..256], &key);
         }
@@ -236,4 +242,5 @@ pub fn main() !void {
 
         try writer.flush();
     }
+    std.process.cleanExit();
 }

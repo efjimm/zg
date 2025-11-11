@@ -32,9 +32,13 @@ const BlockMap = std.HashMap(
 );
 
 pub fn main() !void {
-    var arena_impl = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_impl.deinit();
-    const arena = arena_impl.allocator();
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var threaded: std.Io.Threaded = .init(arena);
+    defer threaded.deinit();
+    const io = threaded.ioBasic();
 
     var flat_map = std.AutoHashMap(u21, u3).init(arena);
     defer flat_map.deinit();
@@ -44,9 +48,9 @@ pub fn main() !void {
     var in_file = try std.fs.cwd().openFile(hangul_data_path, .{});
     defer in_file.close();
     var in_buf: [4096]u8 = undefined;
-    var in_reader = in_file.reader(&in_buf);
+    var in_reader = in_file.reader(io, &in_buf);
 
-    while (try in_reader.interface.takeDelimiter('\n') ) |line| {
+    while (try in_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
 
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;

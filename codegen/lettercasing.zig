@@ -3,16 +3,20 @@ const builtin = @import("builtin");
 const unicode_data_path = @import("options").unicode_data_path;
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var arena_state: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var threaded: std.Io.Threaded = .init(arena);
+    defer threaded.deinit();
+    const io = threaded.ioBasic();
 
     // Process UnicodeData.txt
     const data_path = unicode_data_path ++ "/UnicodeData.txt";
     var in_file = try std.fs.cwd().openFile(data_path, .{});
     defer in_file.close();
     var in_buf: [4096]u8 = undefined;
-    var in_reader = in_file.reader(&in_buf);
+    var in_reader = in_file.reader(io, &in_buf);
 
     const codegen = @import("common.zig");
     const writer = codegen.output();
@@ -28,9 +32,9 @@ pub fn main() !void {
     };
 
     var out_buf: std.ArrayListUnmanaged(T) = .empty;
-    try out_buf.ensureTotalCapacity(allocator, 10_000);
+    try out_buf.ensureTotalCapacity(arena, 10_000);
 
-    lines: while (try in_reader.interface.takeDelimiter('\n') ) |line| {
+    lines: while (try in_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0) continue;
 
         var field_iter = std.mem.splitScalar(u8, line, ';');
@@ -65,7 +69,7 @@ pub fn main() !void {
         }
 
         if (lower != 0 or upper != 0) {
-            try out_buf.append(allocator, .{ .cp = cp, .lower = lower, .upper = upper });
+            try out_buf.append(arena, .{ .cp = cp, .lower = lower, .upper = upper });
         }
     }
 
@@ -74,4 +78,5 @@ pub fn main() !void {
         try writer.writeStruct(arr, endian);
     }
     try writer.flush();
+    std.process.cleanExit();
 }

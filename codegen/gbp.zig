@@ -50,9 +50,13 @@ const BlockMap = std.HashMap(
 );
 
 pub fn main() !void {
-    var arena_impl: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-    defer arena_impl.deinit();
-    const arena = arena_impl.allocator();
+    var arena_state: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var threaded: std.Io.Threaded = .init(arena);
+    defer threaded.deinit();
+    const io = threaded.ioBasic();
 
     var indic_map = std.AutoHashMap(u21, Indic).init(arena);
     defer indic_map.deinit();
@@ -68,9 +72,9 @@ pub fn main() !void {
     var indic_file = try std.fs.cwd().openFile(indic_data_path, .{});
     defer indic_file.close();
     var buf: [4096]u8 = undefined;
-    var indic_reader = indic_file.reader(&buf);
+    var indic_reader = indic_file.reader(io, &buf);
 
-    while (try indic_reader.interface.takeDelimiter('\n') ) |line| {
+    while (try indic_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         if (std.mem.indexOf(u8, line, "InCB") == null) continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
@@ -107,9 +111,9 @@ pub fn main() !void {
     const gbp_data_path = unicode_data_path ++ "/auxiliary/GraphemeBreakProperty.txt";
     var gbp_file = try std.fs.cwd().openFile(gbp_data_path, .{});
     defer gbp_file.close();
-    var gbp_reader = gbp_file.reader(&buf);
+    var gbp_reader = gbp_file.reader(io, &buf);
 
-    while (try gbp_reader.interface.takeDelimiter('\n') ) |line| {
+    while (try gbp_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
 
@@ -145,9 +149,9 @@ pub fn main() !void {
     const emoji_data_path = unicode_data_path ++ "/emoji/emoji-data.txt";
     var emoji_file = try std.fs.cwd().openFile(emoji_data_path, .{});
     defer emoji_file.close();
-    var emoji_reader = emoji_file.reader(&buf);
+    var emoji_reader = emoji_file.reader(io, &buf);
 
-    while (try emoji_reader.interface.takeDelimiter('\n') ) |line| {
+    while (try emoji_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         if (std.mem.indexOf(u8, line, "Extended_Pictographic") == null) continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
@@ -235,4 +239,5 @@ pub fn main() !void {
     try writer.writeAll(props_bytes);
 
     try writer.flush();
+    std.process.cleanExit();
 }

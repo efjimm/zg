@@ -3,16 +3,20 @@ const builtin = @import("builtin");
 const unicode_data_path = @import("options").unicode_data_path;
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var threaded_io: std.Io.Threaded = .init(arena);
+    defer threaded_io.deinit();
+    const io = threaded_io.ioBasic();
 
     // Process UnicodeData.txt
     const data_path = unicode_data_path ++ "/UnicodeData.txt";
     var in_file = try std.fs.cwd().openFile(data_path, .{});
     defer in_file.close();
     var in_buf: [4096]u8 = undefined;
-    var in_reader = in_file.reader(&in_buf);
+    var in_reader = in_file.reader(io, &in_buf);
 
     const codegen = @import("common.zig");
     const writer = codegen.output();
@@ -31,11 +35,11 @@ pub fn main() !void {
     const Map = std.AutoHashMapUnmanaged([2]u21, u21);
     var map: Map = .empty;
 
-    try map.ensureTotalCapacity(allocator, 10_000);
-    try cps.ensureTotalCapacity(allocator, 10_000);
-    try nfd.ensureTotalCapacity(allocator, 10_000);
+    try map.ensureTotalCapacity(arena, 10_000);
+    try cps.ensureTotalCapacity(arena, 10_000);
+    try nfd.ensureTotalCapacity(arena, 10_000);
 
-    lines: while (try in_reader.interface.takeDelimiter('\n') ) |line| {
+    lines: while (try in_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0) continue;
 
         var field_iter = std.mem.splitScalar(u8, line, ';');
@@ -56,7 +60,7 @@ pub fn main() !void {
                         singleton = false;
                         buf[0] = try std.fmt.parseInt(u21, field[0..space], 16);
                         buf[1] = try std.fmt.parseInt(u21, field[space + 1 ..], 16);
-                        try map.put(allocator, buf, cp);
+                        try map.put(arena, buf, cp);
                     } else {
                         // Singleton
                         buf[0] = try std.fmt.parseInt(u21, field, 16);
@@ -70,7 +74,7 @@ pub fn main() !void {
         }
 
         const len: u2 = if (singleton) 1 else 2;
-        try nfd.append(allocator, .{
+        try nfd.append(arena, .{
             .cp = cp,
             .len = len,
         });
@@ -83,4 +87,5 @@ pub fn main() !void {
     for (nfd.items) |i| try writer.writeStruct(i, endian);
     for (cps.items) |i| try writer.writeInt(u32, i, endian);
     try writer.flush();
+    std.process.cleanExit();
 }

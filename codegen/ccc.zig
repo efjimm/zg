@@ -27,6 +27,10 @@ pub fn main() !void {
     defer arena_impl.deinit();
     const arena = arena_impl.allocator();
 
+    var threaded: std.Io.Threaded = .init(arena);
+    defer threaded.deinit();
+    const io = threaded.ioBasic();
+
     var flat_map = std.AutoHashMap(u21, u8).init(arena);
     defer flat_map.deinit();
 
@@ -36,9 +40,9 @@ pub fn main() !void {
     const cc_data_path = unicode_data_path ++ "/extracted/DerivedCombiningClass.txt";
     var cc_file = try std.fs.cwd().openFile(cc_data_path, .{});
     defer cc_file.close();
-    var cc_reader = cc_file.reader(&buf);
+    var cc_reader = cc_file.reader(io, &buf);
 
-    while (try cc_reader.interface.takeDelimiter('\n') ) |line| {
+    while (try cc_reader.interface.takeDelimiter('\n')) |line| {
         if (line.len == 0 or line[0] == '#') continue;
         const no_comment = if (std.mem.indexOfScalar(u8, line, '#')) |octo| line[0..octo] else line;
 
@@ -111,4 +115,5 @@ pub fn main() !void {
     try writer.writeAll(stage2.items);
 
     try writer.flush();
+    std.process.cleanExit();
 }
