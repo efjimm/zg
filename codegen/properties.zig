@@ -33,8 +33,8 @@ pub fn fromFile(
     defer flat_map.deinit();
 
     // Process DerivedNumericType.txt
-    const in_file = try std.fs.cwd().openFile(filepath, .{});
-    defer in_file.close();
+    const in_file = try std.Io.Dir.cwd().openFile(io, filepath, .{});
+    defer in_file.close(io);
     var in_buf: [4096]u8 = undefined;
     var in_reader = in_file.reader(io, &in_buf);
 
@@ -115,14 +115,9 @@ pub fn fromFile(
         try stage2.toOwnedSlice(gpa),
     };
 }
-pub fn main() !void {
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    var threaded: std.Io.Threaded = .init(arena);
-    defer threaded.deinit();
-    const io = threaded.ioBasic();
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const io = init.io;
 
     var flat_map = std.AutoHashMap(u21, u8).init(arena);
     defer flat_map.deinit();
@@ -152,24 +147,22 @@ pub fn main() !void {
         "Decimal",
     });
 
-    const codegen = @import("common.zig");
-    const writer = codegen.output();
-    defer codegen.finish();
+    const Codegen = @import("Codegen.zig");
+    const c: *Codegen = try .create(init);
 
-    const endian = @import("options").target_endian;
-    try writer.writeInt(u16, @intCast(s1.len), endian);
-    try writer.writeInt(u16, @intCast(s2.len), endian);
-    try writer.writeInt(u16, @intCast(s3.len), endian);
-    try writer.writeInt(u16, @intCast(s4.len), endian);
-    try writer.writeInt(u16, @intCast(s5.len), endian);
-    try writer.writeInt(u16, @intCast(s6.len), endian);
-    for (s1) |i| try writer.writeInt(u16, i, endian);
-    try writer.writeAll(s2);
-    for (s3) |i| try writer.writeInt(u16, i, endian);
-    try writer.writeAll(s4);
-    for (s5) |i| try writer.writeInt(u16, i, endian);
-    try writer.writeAll(s6);
+    try c.writeInt(u16, @intCast(s1.len));
+    try c.writeInt(u16, @intCast(s2.len));
+    try c.writeInt(u16, @intCast(s3.len));
+    try c.writeInt(u16, @intCast(s4.len));
+    try c.writeInt(u16, @intCast(s5.len));
+    try c.writeInt(u16, @intCast(s6.len));
+    for (s1) |i| try c.writeInt(u16, i);
+    try c.writeAll(s2);
+    for (s3) |i| try c.writeInt(u16, i);
+    try c.writeAll(s4);
+    for (s5) |i| try c.writeInt(u16, i);
+    try c.writeAll(s6);
 
-    try writer.flush();
-    std.process.cleanExit();
+    try c.flush();
+    std.process.cleanExit(io);
 }

@@ -24,22 +24,17 @@ const BlockMap = std.HashMap(
     std.hash_map.default_max_load_percentage,
 );
 
-pub fn main() !void {
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    var threaded: std.Io.Threaded = .init(arena);
-    defer threaded.deinit();
-    const io = threaded.ioBasic();
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const io = init.io;
 
     var flat_map = std.AutoHashMap(u21, i4).init(arena);
     defer flat_map.deinit();
 
     // Process DerivedEastAsianWidth.txt
     const deaw_data_path = unicode_data_path ++ "/extracted/DerivedEastAsianWidth.txt";
-    var deaw_file = try std.fs.cwd().openFile(deaw_data_path, .{});
-    defer deaw_file.close();
+    var deaw_file = try std.Io.Dir.cwd().openFile(io, deaw_data_path, .{});
+    defer deaw_file.close(io);
     var buf: [4096]u8 = undefined;
     var deaw_reader = deaw_file.reader(io, &buf);
 
@@ -96,8 +91,8 @@ pub fn main() !void {
 
     // Process DerivedGeneralCategory.txt
     const dgc_data_path = unicode_data_path ++ "/extracted/DerivedGeneralCategory.txt";
-    var dgc_file = try std.fs.cwd().openFile(dgc_data_path, .{});
-    defer dgc_file.close();
+    var dgc_file = try std.Io.Dir.cwd().openFile(io, dgc_data_path, .{});
+    defer dgc_file.close(io);
     var dgc_reader = dgc_file.reader(io, &buf);
 
     while (try dgc_reader.interface.takeDelimiter('\n')) |line| {
@@ -223,16 +218,14 @@ pub fn main() !void {
         block_len = 0;
     }
 
-    const codegen = @import("common.zig");
-    const writer = codegen.output();
-    defer codegen.finish();
+    const Codegen = @import("Codegen.zig");
+    const c: *Codegen = try .create(init);
 
-    const endian = @import("options").target_endian;
-    try writer.writeInt(u32, @intCast(stage1.items.len), endian);
-    try writer.writeInt(u32, @intCast(stage2.items.len), endian);
-    for (stage1.items) |i| try writer.writeInt(u16, i, endian);
-    for (stage2.items) |i| try writer.writeInt(i8, i, endian);
+    try c.writeInt(u32, @intCast(stage1.items.len));
+    try c.writeInt(u32, @intCast(stage2.items.len));
+    for (stage1.items) |i| try c.writeInt(u16, i);
+    for (stage2.items) |i| try c.writeInt(i8, i);
 
-    try writer.flush();
-    std.process.cleanExit();
+    try c.flush();
+    std.process.cleanExit(io);
 }

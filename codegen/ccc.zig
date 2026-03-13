@@ -22,14 +22,9 @@ const BlockMap = std.HashMap(
     std.hash_map.default_max_load_percentage,
 );
 
-pub fn main() !void {
-    var arena_impl: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-    defer arena_impl.deinit();
-    const arena = arena_impl.allocator();
-
-    var threaded: std.Io.Threaded = .init(arena);
-    defer threaded.deinit();
-    const io = threaded.ioBasic();
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const io = init.io;
 
     var flat_map = std.AutoHashMap(u21, u8).init(arena);
     defer flat_map.deinit();
@@ -38,8 +33,8 @@ pub fn main() !void {
 
     // Process DerivedCombiningClass.txt
     const cc_data_path = unicode_data_path ++ "/extracted/DerivedCombiningClass.txt";
-    var cc_file = try std.fs.cwd().openFile(cc_data_path, .{});
-    defer cc_file.close();
+    var cc_file = try std.Io.Dir.cwd().openFile(io, cc_data_path, .{});
+    defer cc_file.close(io);
     var cc_reader = cc_file.reader(io, &buf);
 
     while (try cc_reader.interface.takeDelimiter('\n')) |line| {
@@ -103,17 +98,15 @@ pub fn main() !void {
         block_len = 0;
     }
 
-    const codegen = @import("common.zig");
-    const writer = codegen.output();
-    defer codegen.finish();
+    const Codegen = @import("Codegen.zig");
+    const c: *Codegen = try .create(init);
 
-    const endian = @import("options").target_endian;
-    try writer.writeInt(u32, @intCast(stage1.items.len), endian);
-    try writer.writeInt(u32, @intCast(stage2.items.len), endian);
+    try c.writeInt(u32, @intCast(stage1.items.len));
+    try c.writeInt(u32, @intCast(stage2.items.len));
 
-    for (stage1.items) |i| try writer.writeInt(u16, i, endian);
-    try writer.writeAll(stage2.items);
+    for (stage1.items) |i| try c.writeInt(u16, i);
+    try c.writeAll(stage2.items);
 
-    try writer.flush();
-    std.process.cleanExit();
+    try c.flush();
+    std.process.cleanExit(io);
 }

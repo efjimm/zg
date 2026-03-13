@@ -48,8 +48,8 @@ test "Unicode normalization tests" {
     const n = try Normalize.init(arena);
     defer n.deinit(arena);
 
-    var file = try fs.cwd().openFile("data/unicode/NormalizationTest.txt", .{});
-    defer file.close();
+    var file = try std.Io.Dir.cwd().openFile(io, "data/unicode/NormalizationTest.txt", .{});
+    defer file.close(io);
     var buf: [4096]u8 = undefined;
     var input_stream = file.reader(io, &buf);
 
@@ -152,8 +152,8 @@ test "Unicode normalization tests" {
 
 test "Segmentation GraphemeIterator" {
     const allocator = std.testing.allocator;
-    var file = try std.fs.cwd().openFile("data/unicode/auxiliary/GraphemeBreakTest.txt", .{});
-    defer file.close();
+    var file = try std.Io.Dir.cwd().openFile(io, "data/unicode/auxiliary/GraphemeBreakTest.txt", .{});
+    defer file.close(io);
     var buf: [4096]u8 = undefined;
     var input_stream = file.reader(io, &buf);
 
@@ -167,7 +167,7 @@ test "Segmentation GraphemeIterator" {
         if (raw.len == 0 or raw[0] == '#' or raw[0] == '@') continue;
 
         // Clean up.
-        var line = std.mem.trimLeft(u8, raw, "÷ ");
+        var line = std.mem.trimStart(u8, raw, "÷ ");
         if (std.mem.indexOf(u8, line, " ÷\t#")) |octo| {
             line = line[0..octo];
         }
@@ -215,8 +215,8 @@ test "Segmentation GraphemeIterator" {
 
 test "Segmentation ReverseGraphemeIterator" {
     const allocator = std.testing.allocator;
-    var file = try std.fs.cwd().openFile("data/unicode/auxiliary/GraphemeBreakTest.txt", .{});
-    defer file.close();
+    var file = try std.Io.Dir.cwd().openFile(io, "data/unicode/auxiliary/GraphemeBreakTest.txt", .{});
+    defer file.close(io);
     var buf: [4096]u8 = undefined;
     var input_stream = file.reader(io, &buf);
 
@@ -230,7 +230,7 @@ test "Segmentation ReverseGraphemeIterator" {
         if (raw.len == 0 or raw[0] == '#' or raw[0] == '@') continue;
 
         // Clean up.
-        var line = std.mem.trimLeft(u8, raw, "÷ ");
+        var line = std.mem.trimStart(u8, raw, "÷ ");
         if (std.mem.indexOf(u8, line, " ÷\t#")) |octo| {
             line = line[0..octo];
         }

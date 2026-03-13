@@ -49,14 +49,9 @@ const BlockMap = std.HashMap(
     std.hash_map.default_max_load_percentage,
 );
 
-pub fn main() !void {
-    var arena_state: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    var threaded: std.Io.Threaded = .init(arena);
-    defer threaded.deinit();
-    const io = threaded.ioBasic();
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const io = init.io;
 
     var indic_map = std.AutoHashMap(u21, Indic).init(arena);
     defer indic_map.deinit();
@@ -69,8 +64,8 @@ pub fn main() !void {
 
     // Process Indic
     const indic_data_path = unicode_data_path ++ "/DerivedCoreProperties.txt";
-    var indic_file = try std.fs.cwd().openFile(indic_data_path, .{});
-    defer indic_file.close();
+    var indic_file = try std.Io.Dir.cwd().openFile(io, indic_data_path, .{});
+    defer indic_file.close(io);
     var buf: [4096]u8 = undefined;
     var indic_reader = indic_file.reader(io, &buf);
 
@@ -109,8 +104,8 @@ pub fn main() !void {
 
     // Process GBP
     const gbp_data_path = unicode_data_path ++ "/auxiliary/GraphemeBreakProperty.txt";
-    var gbp_file = try std.fs.cwd().openFile(gbp_data_path, .{});
-    defer gbp_file.close();
+    var gbp_file = try std.Io.Dir.cwd().openFile(io, gbp_data_path, .{});
+    defer gbp_file.close(io);
     var gbp_reader = gbp_file.reader(io, &buf);
 
     while (try gbp_reader.interface.takeDelimiter('\n')) |line| {
@@ -147,8 +142,8 @@ pub fn main() !void {
 
     // Process Emoji
     const emoji_data_path = unicode_data_path ++ "/emoji/emoji-data.txt";
-    var emoji_file = try std.fs.cwd().openFile(emoji_data_path, .{});
-    defer emoji_file.close();
+    var emoji_file = try std.Io.Dir.cwd().openFile(io, emoji_data_path, .{});
+    defer emoji_file.close(io);
     var emoji_reader = emoji_file.reader(io, &buf);
 
     while (try emoji_reader.interface.takeDelimiter('\n')) |line| {
@@ -223,21 +218,18 @@ pub fn main() !void {
         block_len = 0;
     }
 
-    const codegen = @import("common.zig");
-    const writer = codegen.output();
-    defer codegen.finish();
-
-    const endian = @import("options").target_endian;
+    const Codegen = @import("Codegen.zig");
+    const c: *Codegen = try .create(init);
 
     const props_bytes = stage3.keys();
-    try writer.writeInt(u32, @intCast(stage1.items.len), endian);
-    try writer.writeInt(u32, @intCast(stage2.items.len), endian);
-    try writer.writeInt(u32, @intCast(props_bytes.len), endian);
+    try c.writeInt(u32, @intCast(stage1.items.len));
+    try c.writeInt(u32, @intCast(stage2.items.len));
+    try c.writeInt(u32, @intCast(props_bytes.len));
 
-    for (stage1.items) |i| try writer.writeInt(u16, i, endian);
-    for (stage2.items) |i| try writer.writeInt(u16, i, endian);
-    try writer.writeAll(props_bytes);
+    for (stage1.items) |i| try c.writeInt(u16, i);
+    for (stage2.items) |i| try c.writeInt(u16, i);
+    try c.writeAll(props_bytes);
 
-    try writer.flush();
-    std.process.cleanExit();
+    try c.flush();
+    std.process.cleanExit(io);
 }

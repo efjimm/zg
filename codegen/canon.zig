@@ -2,27 +2,19 @@ const std = @import("std");
 const builtin = @import("builtin");
 const unicode_data_path = @import("options").unicode_data_path;
 
-pub fn main() !void {
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    var threaded_io: std.Io.Threaded = .init(arena);
-    defer threaded_io.deinit();
-    const io = threaded_io.ioBasic();
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const io = init.io;
 
     // Process UnicodeData.txt
     const data_path = unicode_data_path ++ "/UnicodeData.txt";
-    var in_file = try std.fs.cwd().openFile(data_path, .{});
-    defer in_file.close();
+    var in_file = try std.Io.Dir.cwd().openFile(io, data_path, .{});
+    defer in_file.close(io);
     var in_buf: [4096]u8 = undefined;
     var in_reader = in_file.reader(io, &in_buf);
 
-    const codegen = @import("common.zig");
-    const writer = codegen.output();
-    defer codegen.finish();
-
-    const endian = @import("options").target_endian;
+    const Codegen = @import("Codegen.zig");
+    const c: *Codegen = try .create(init);
 
     const Item = packed struct(u32) {
         cp: u24,
@@ -81,11 +73,11 @@ pub fn main() !void {
         cps.appendSliceAssumeCapacity(@ptrCast(buf[0..len]));
     }
 
-    try writer.writeInt(u32, @intCast(nfd.items.len), endian);
-    try writer.writeInt(u32, @intCast(cps.items.len), endian);
-    try writer.writeInt(u32, map.capacity(), endian);
-    for (nfd.items) |i| try writer.writeStruct(i, endian);
-    for (cps.items) |i| try writer.writeInt(u32, i, endian);
-    try writer.flush();
-    std.process.cleanExit();
+    try c.writeInt(u32, @intCast(nfd.items.len));
+    try c.writeInt(u32, @intCast(cps.items.len));
+    try c.writeInt(u32, map.capacity());
+    for (nfd.items) |i| try c.writeStruct(i);
+    for (cps.items) |i| try c.writeInt(u32, i);
+    try c.flush();
+    std.process.cleanExit(io);
 }

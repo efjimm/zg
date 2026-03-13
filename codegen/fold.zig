@@ -2,19 +2,14 @@ const std = @import("std");
 const builtin = @import("builtin");
 const unicode_data_path = @import("options").unicode_data_path;
 
-pub fn main() !void {
-    var arena_state: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    var threaded: std.Io.Threaded = .init(arena);
-    defer threaded.deinit();
-    const io = threaded.ioBasic();
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const io = init.io;
 
     // Process DerivedCoreProperties.txt
     const props_data_path = unicode_data_path ++ "/DerivedCoreProperties.txt";
-    var props_file = try std.fs.cwd().openFile(props_data_path, .{});
-    defer props_file.close();
+    var props_file = try std.Io.Dir.cwd().openFile(io, props_data_path, .{});
+    defer props_file.close(io);
     var buf: [4096]u8 = undefined;
     var props_reader = props_file.reader(io, &buf);
 
@@ -59,8 +54,8 @@ pub fn main() !void {
 
     // Process CaseFolding.txt
     const casefolding_data_path = unicode_data_path ++ "/CaseFolding.txt";
-    var cp_file = try std.fs.cwd().openFile(casefolding_data_path, .{});
-    defer cp_file.close();
+    var cp_file = try std.Io.Dir.cwd().openFile(io, casefolding_data_path, .{});
+    defer cp_file.close(io);
     var cp_reader = cp_file.reader(io, &buf);
 
     while (try cp_reader.interface.takeDelimiter('\n')) |line| {
@@ -216,31 +211,29 @@ pub fn main() !void {
             @memcpy(stage2[i * 256 ..][0..256], &key);
         }
 
-        const codegen = @import("common.zig");
-        const writer = codegen.output();
-        defer codegen.finish();
+        const Codegen = @import("Codegen.zig");
+        const c: *Codegen = try .create(init);
 
-        const endian = @import("options").target_endian;
         // Table metadata.
-        try writer.writeInt(u32, @intCast(codepoint_cutoff), endian);
-        try writer.writeInt(u32, @intCast(multiple_codepoint_start), endian);
+        try c.writeInt(u32, @intCast(codepoint_cutoff));
+        try c.writeInt(u32, @intCast(multiple_codepoint_start));
 
-        try writer.writeInt(u32, @intCast(meaningful_stage1.len), endian);
-        try writer.writeInt(u32, @intCast(stage2.len), endian);
-        try writer.writeInt(u32, @intCast(stage3.len), endian);
+        try c.writeInt(u32, @intCast(meaningful_stage1.len));
+        try c.writeInt(u32, @intCast(stage2.len));
+        try c.writeInt(u32, @intCast(stage3.len));
 
         // Changes when case folded
         // Min and max
-        try writer.writeInt(u32, std.mem.min(u21, changes_when_casefolded_exceptions.items), endian);
-        try writer.writeInt(u32, std.mem.max(u21, changes_when_casefolded_exceptions.items), endian);
-        try writer.writeInt(u32, @intCast(changes_when_casefolded_exceptions.items.len), endian);
+        try c.writeInt(u32, std.mem.min(u21, changes_when_casefolded_exceptions.items));
+        try c.writeInt(u32, std.mem.max(u21, changes_when_casefolded_exceptions.items));
+        try c.writeInt(u32, @intCast(changes_when_casefolded_exceptions.items.len));
 
-        for (stage3) |offset| try writer.writeInt(i32, offset, endian);
-        for (changes_when_casefolded_exceptions.items) |cp| try writer.writeInt(u32, cp, endian);
-        try writer.writeAll(meaningful_stage1);
-        try writer.writeAll(stage2);
+        for (stage3) |offset| try c.writeInt(i32, offset);
+        for (changes_when_casefolded_exceptions.items) |cp| try c.writeInt(u32, cp);
+        try c.writeAll(meaningful_stage1);
+        try c.writeAll(stage2);
 
-        try writer.flush();
+        try c.flush();
     }
-    std.process.cleanExit();
+    std.process.cleanExit(io);
 }

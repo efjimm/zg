@@ -2,27 +2,19 @@ const std = @import("std");
 const builtin = @import("builtin");
 const unicode_data_path = @import("options").unicode_data_path;
 
-pub fn main() !void {
-    var arena_state: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    var threaded: std.Io.Threaded = .init(arena);
-    defer threaded.deinit();
-    const io = threaded.ioBasic();
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const io = init.io;
 
     // Process UnicodeData.txt
     const data_path = unicode_data_path ++ "/UnicodeData.txt";
-    var in_file = try std.fs.cwd().openFile(data_path, .{});
-    defer in_file.close();
+    var in_file = try std.Io.Dir.cwd().openFile(io, data_path, .{});
+    defer in_file.close(io);
     var in_buf: [4096]u8 = undefined;
     var in_reader = in_file.reader(io, &in_buf);
 
-    const codegen = @import("common.zig");
-    const writer = codegen.output();
-    defer codegen.finish();
-
-    const endian = @import("options").target_endian;
+    const Codegen = @import("Codegen.zig");
+    const c: *Codegen = try .create(init);
 
     const T = extern struct {
         cp: u32,
@@ -73,10 +65,10 @@ pub fn main() !void {
         }
     }
 
-    try writer.writeInt(u32, @intCast(out_buf.items.len), endian);
+    try c.writeInt(u32, @intCast(out_buf.items.len));
     for (out_buf.items) |arr| {
-        try writer.writeStruct(arr, endian);
+        try c.writeStruct(arr);
     }
-    try writer.flush();
-    std.process.cleanExit();
+    try c.flush();
+    std.process.cleanExit(io);
 }

@@ -2,27 +2,16 @@ const std = @import("std");
 const builtin = @import("builtin");
 const unicode_data_path = @import("options").unicode_data_path;
 
-pub fn main() !void {
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    var threaded: std.Io.Threaded = .init(arena);
-    defer threaded.deinit();
-    const io = threaded.ioBasic();
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const io = init.io;
 
     // Process UnicodeData.txt
     const unicode_data = unicode_data_path ++ "/UnicodeData.txt";
-    var in_file = try std.fs.cwd().openFile(unicode_data, .{});
-    defer in_file.close();
+    var in_file = try std.Io.Dir.cwd().openFile(io, unicode_data, .{});
+    defer in_file.close(io);
     var in_buf: [4096]u8 = undefined;
     var in_reader = in_file.reader(io, &in_buf);
-
-    const codegen = @import("common.zig");
-    const writer = codegen.output();
-    defer codegen.finish();
-
-    const endian = @import("options").target_endian;
 
     const Item = packed struct(u32) {
         cp: u24,
@@ -75,12 +64,15 @@ pub fn main() !void {
         try out_cps.appendSlice(arena, cps.items);
     }
 
-    try writer.writeInt(u32, @intCast(items.items.len), endian);
-    try writer.writeInt(u32, @intCast(out_cps.items.len), endian);
-    try writer.writeInt(u32, max_cp, endian);
-    for (items.items) |item| try writer.writeStruct(item, endian);
-    for (out_cps.items) |cp| try writer.writeInt(u32, cp, endian);
+    const Codegen = @import("Codegen.zig");
+    const c: *Codegen = try .create(init);
 
-    try writer.flush();
-    std.process.cleanExit();
+    try c.writeInt(u32, @intCast(items.items.len));
+    try c.writeInt(u32, @intCast(out_cps.items.len));
+    try c.writeInt(u32, max_cp);
+    for (items.items) |item| try c.writeStruct(item);
+    for (out_cps.items) |cp| try c.writeInt(u32, cp);
+
+    try c.flush();
+    std.process.cleanExit(io);
 }

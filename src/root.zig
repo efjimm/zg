@@ -103,5 +103,5 @@ pub fn isInitialized(field: UnicodeData) bool {
 }
 
 test {
-    std.testing.refAllDeclsRecursive(@This());
+    std.testing.refAllDecls(@This());
 }
