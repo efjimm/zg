@@ -49,8 +49,8 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    var codepoint_mapping = std.AutoArrayHashMap(u21, [3]u21).init(arena);
-    defer codepoint_mapping.deinit();
+    var codepoint_mapping: std.array_hash_map.Auto(u21, [3]u21) = .empty;
+    defer codepoint_mapping.deinit(arena);
 
     // Process CaseFolding.txt
     const casefolding_data_path = unicode_data_path ++ "/CaseFolding.txt";
@@ -78,7 +78,7 @@ pub fn main(init: std.process.Init) !void {
             mapping_i += 1;
         }
 
-        try codepoint_mapping.putNoClobber(codepoint, mapping_buf);
+        try codepoint_mapping.putNoClobber(arena, codepoint, mapping_buf);
     }
 
     var changes_when_casefolded_exceptions: std.ArrayList(u21) = .empty;
@@ -94,25 +94,23 @@ pub fn main(init: std.process.Init) !void {
 
     var offset_to_index = std.AutoHashMap(i32, u8).init(arena);
     defer offset_to_index.deinit();
-    var unique_offsets = std.AutoArrayHashMap(i32, u32).init(arena);
-    defer unique_offsets.deinit();
+    var unique_offsets: std.array_hash_map.Auto(i32, u32) = .empty;
+    defer unique_offsets.deinit(arena);
 
     // First pass
     {
-        var it = codepoint_mapping.iterator();
-        while (it.next()) |entry| {
-            const codepoint = entry.key_ptr.*;
-            const mappings = std.mem.sliceTo(entry.value_ptr, 0);
+        for (codepoint_mapping.keys(), codepoint_mapping.values()) |k, *v| {
+            const mappings = std.mem.sliceTo(v, 0);
             if (mappings.len == 1) {
-                const offset: i32 = @as(i32, mappings[0]) - @as(i32, codepoint);
-                const result = try unique_offsets.getOrPut(offset);
+                const offset: i32 = @as(i32, mappings[0]) - @as(i32, k);
+                const result = try unique_offsets.getOrPut(arena, offset);
                 if (!result.found_existing) result.value_ptr.* = 0;
                 result.value_ptr.* += 1;
             }
         }
 
         // A codepoint mapping to itself (offset=0) is the most common case
-        try unique_offsets.put(0, 0x10FFFF);
+        try unique_offsets.put(arena, 0, 0x10FFFF);
         const C = struct {
             vals: []u32,
 
@@ -122,18 +120,17 @@ pub fn main(init: std.process.Init) !void {
         };
         unique_offsets.sort(C{ .vals = unique_offsets.values() });
 
-        var offset_it = unique_offsets.iterator();
         var offset_index: u7 = 0;
-        while (offset_it.next()) |entry| {
-            try offset_to_index.put(entry.key_ptr.*, offset_index);
+        for (unique_offsets.keys()) |k| {
+            try offset_to_index.put(k, offset_index);
             offset_index += 1;
         }
     }
 
-    var mappings_to_index = std.AutoArrayHashMap([3]u21, u8).init(arena);
-    defer mappings_to_index.deinit();
-    var codepoint_to_index = std.AutoHashMap(u21, u8).init(arena);
-    defer codepoint_to_index.deinit();
+    var mappings_to_index: std.array_hash_map.Auto([3]u21, u8) = .empty;
+    defer mappings_to_index.deinit(arena);
+    var codepoint_to_index: std.AutoHashMapUnmanaged(u21, u8) = .empty;
+    defer codepoint_to_index.deinit(arena);
 
     // Second pass
     {
@@ -144,17 +141,17 @@ pub fn main(init: std.process.Init) !void {
             const codepoint = entry.key_ptr.*;
             const mappings = std.mem.sliceTo(entry.value_ptr, 0);
             if (mappings.len > 1) {
-                const result = try mappings_to_index.getOrPut(entry.value_ptr.*);
+                const result = try mappings_to_index.getOrPut(arena, entry.value_ptr.*);
                 if (!result.found_existing) {
                     result.value_ptr.* = 0x80 | count_multiple_codepoints;
                     count_multiple_codepoints += 1;
                 }
                 const index = result.value_ptr.*;
-                try codepoint_to_index.put(codepoint, index);
+                try codepoint_to_index.put(arena, codepoint, index);
             } else {
                 const offset: i32 = @as(i32, mappings[0]) - @as(i32, codepoint);
                 const index = offset_to_index.get(offset).?;
-                try codepoint_to_index.put(codepoint, index);
+                try codepoint_to_index.put(arena, codepoint, index);
             }
         }
     }
@@ -162,11 +159,11 @@ pub fn main(init: std.process.Init) !void {
     // Build the stage1/stage2/stage3 arrays and output them
     {
         const Block = [256]u8;
-        var stage2_blocks = std.AutoArrayHashMap(Block, void).init(arena);
-        defer stage2_blocks.deinit();
+        var stage2_blocks: std.array_hash_map.Auto(Block, void) = .empty;
+        defer stage2_blocks.deinit(arena);
 
         const empty_block: Block = @splat(0);
-        try stage2_blocks.put(empty_block, {});
+        try stage2_blocks.put(arena, empty_block, {});
         const stage1_len = (0x10FFFF / 256) + 1;
         var stage1: [stage1_len]u8 = undefined;
 
@@ -178,7 +175,7 @@ pub fn main(init: std.process.Init) !void {
 
             codepoint += 1;
             if (codepoint % 256 == 0) {
-                const result = try stage2_blocks.getOrPut(block);
+                const result = try stage2_blocks.getOrPut(arena, block);
                 const index = result.index;
                 stage1[(codepoint >> 8) - 1] = @intCast(index);
             }

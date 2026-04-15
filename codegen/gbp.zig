@@ -177,8 +177,8 @@ pub fn main(init: std.process.Init) !void {
 
     var stage1: std.ArrayList(u16) = .empty;
     var stage2: std.ArrayList(u16) = .empty;
-    var stage3 = std.AutoArrayHashMap(u8, u16).init(arena);
-    defer stage3.deinit();
+    var stage3: std.array_hash_map.Auto(u8, u16) = .empty;
+    defer stage3.deinit(arena);
     var stage3_len: u16 = 0;
 
     var block: Block = @splat(0);
@@ -194,7 +194,7 @@ pub fn main(init: std.process.Init) !void {
         props_byte |= emoji_prop;
 
         const stage3_idx = blk: {
-            const gop = try stage3.getOrPut(props_byte);
+            const gop = try stage3.getOrPut(arena, props_byte);
             if (!gop.found_existing) {
                 gop.value_ptr.* = stage3_len;
                 stage3_len += 1;
