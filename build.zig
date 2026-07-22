@@ -43,8 +43,9 @@ pub fn build(b: *std.Build) !void {
         "C1 controls have this width (default: 0)",
     ) orelse 0;
     options.addOption(i4, "c1_width", c1_width);
+    const unicode_data_path = b.pathJoin(&.{ b.root.root_dir.path.?, "data", "unicode" });
+    options.addOption([]const u8, "unicode_data_path", unicode_data_path);
 
-    options.addOptionPath("unicode_data_path", b.path("data/unicode"));
     const options_mod = options.createModule();
 
     const print_sizes = b.addExecutable(.{

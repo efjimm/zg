@@ -107,7 +107,7 @@ pub fn deinit(cdata: *const CanonData, allocator: std.mem.Allocator) void {
         cdata.cps.len * @sizeOf(u21) +
         hashMapAllocSize([2]u21, u21, cdata.nfc.capacity());
 
-    const ptr: [*]const u8 = @ptrCast(cdata.cps.ptr);
+    const ptr: [*]align(8) const u8 = @ptrCast(@alignCast(cdata.cps.ptr));
     const slice = ptr[0..total_size];
     allocator.free(slice);
 }

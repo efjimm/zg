@@ -68,7 +68,7 @@ pub fn initWithGraphemes(
 
 pub fn deinit(dw: *const DisplayWidth, allocator: std.mem.Allocator) void {
     assert(dw.isInitialized());
-    const ptr: [*]const u8 = @ptrCast(dw.s1.ptr);
+    const ptr: [*]align(2) const u8 = @ptrCast(dw.s1.ptr);
     const bytes = ptr[0 .. dw.s1.len * 2 + dw.s2.len];
     allocator.free(bytes);
     if (dw.owns_graphemes) dw.graphemes.deinit(allocator);
@@ -187,6 +187,8 @@ test "strWidth" {
     defer dw.deinit(testing.allocator);
     const c0 = options.c0_width orelse 0;
 
+    try testing.expectEqual(1, dw.strWidth("☀", .{}).width);
+    try testing.expectEqual(2, dw.strWidth("☀️", .{}).width);
     try testing.expectEqual(5, dw.strWidth("Hello\r\n", .{}).width);
     try testing.expectEqual(1, dw.strWidth("\u{0065}\u{0301}", .{}).width);
     try testing.expectEqual(2, dw.strWidth("\u{1F476}\u{1F3FF}\u{0308}\u{200D}\u{1F476}\u{1F3FF}", .{}).width);

@@ -85,7 +85,7 @@ pub fn deinit(self: *const Properties, allocator: Allocator) void {
         std.mem.alignForward(usize, self.core_s1.len * 2 + self.core_s2.len, 2) +
         std.mem.alignForward(usize, self.props_s1.len * 2 + self.props_s2.len, 2) +
         self.num_s1.len * 2 + self.num_s2.len;
-    const ptr: [*]const u8 = @ptrCast(self.core_s1.ptr);
+    const ptr: [*]align(2) const u8 = @ptrCast(self.core_s1.ptr);
     allocator.free(ptr[0..total_size]);
 }
 

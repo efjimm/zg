@@ -53,7 +53,7 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Graphemes {
 pub fn deinit(g: *const Graphemes, allocator: std.mem.Allocator) void {
     assert(g.isInitialized());
     const total_size = g.s1.len * 2 + g.s2.len * 2 + g.s3.len;
-    const ptr: [*]const u8 = @ptrCast(g.s1.ptr);
+    const ptr: [*]align(2) const u8 = @ptrCast(g.s1.ptr);
     allocator.free(ptr[0..total_size]);
 }
 

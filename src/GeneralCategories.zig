@@ -86,7 +86,7 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!GeneralCategor
 pub fn deinit(gencat: *const GeneralCategories, allocator: std.mem.Allocator) void {
     assert(gencat.isInitialized());
     const total_size = gencat.s1.len * 2 + gencat.s2.len + gencat.s3.len;
-    const ptr: [*]const u8 = @ptrCast(gencat.s1.ptr);
+    const ptr: [*]align(2) const u8 = @ptrCast(gencat.s1.ptr);
     const slice = ptr[0..total_size];
     allocator.free(slice);
 }

@@ -95,8 +95,8 @@ pub fn initWithNormalize(
 pub fn deinit(fdata: *const CaseFolding, allocator: std.mem.Allocator) void {
     assert(fdata.isInitialized());
     const total_size = fdata.s1.len + fdata.s2.len + fdata.s3.len * 4 + fdata.cwcf_exceptions.len * 4;
-    const slice: []align(4) const u8 = @alignCast(fdata.s1.ptr[0..total_size]);
-    allocator.free(slice);
+    const bytes: [*]align(4) const u8 = @ptrCast(fdata.s3.ptr);
+    allocator.free(bytes[0..total_size]);
     if (fdata.owns_normalize) fdata.normalize.deinit(allocator);
 }
 

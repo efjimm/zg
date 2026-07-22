@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const endian = @import("builtin").target.cpu.arch.endian();
 
-data: [*]const u8,
+data: [*]align(2) const u8,
 s1_size: u32,
 s2_size: u16,
 s3_size: u16,
